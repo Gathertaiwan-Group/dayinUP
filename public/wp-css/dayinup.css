@@ -124,3 +124,6 @@
 .dayinup-register p { margin-bottom: 1em; }
 .dayinup-register label { display: block; margin-bottom: 6px; }
 .wp-block-woocommerce-cart .wc-block-components-sidebar-layout { margin-top: 40px; }
+/* old /my-account/ content sat inside Elementor container 54c2077d (post-9.css): margin-top 50px (30px <=767px) + e-con-inner padding-top 10px */
+[data-view="account"] main .entry-content { padding-top: 60px; }
+@media (max-width: 767px) { [data-view="account"] main .entry-content { padding-top: 40px; } }

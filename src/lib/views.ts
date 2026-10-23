@@ -148,7 +148,9 @@ const SHORTCODES: Record<string, string> = {
 function renderContent(html: string): string {
   return String(html || '')
     // WooCommerce Store API strips <style> from descriptions but leaves Stackable's CSS text (texturized) behind
-    .replace(/(data-block-id="([a-z0-9]+)">)(\s*)(\.stk-\2[^<]*)/g, (_, open, _id, ws, css) => `${open}${ws}<style class="stk-block-styles">${css.replace(/&#8211;/g, '--').replace(/&#8217;|&#8216;/g, "'").replace(/&#8220;|&#8221;/g, '"').replace(/&gt;/g, '>')}</style>`)
+    // (any tag, e.g. data-block-id="..."> or a <br /> inside a <p>, followed by a bare `.stk-xxxxxxx {` / `.stk-xxxxxxx ,` text run)
+    .replace(/(<[^>]+>)(\s*)(\.stk-[a-z0-9]+\s*[{,][^<]*)/g, (all, open: string, ws, css: string) =>
+      /^<style\b/i.test(open) ? all : `${open}${ws}<style class="stk-block-styles">${css.trim().replace(/&#8211;/g, '--').replace(/&#8217;|&#8216;/g, "'").replace(/&#8220;|&#8221;/g, '"').replace(/&gt;/g, '>').replace(/&amp;/g, '&')}</style>`)
     .replace(/<p>\s*\[(register_form|subscription_details|rcp_profile_editor|rcp_update_card)\]\s*<\/p>/g, (_, sc) => `<div class="dayinup-shortcode" data-shortcode="${sc}">${SHORTCODES[sc] || ''}</div>`)
 }
 
@@ -213,13 +215,23 @@ async function postView(post: Row, path: string): Promise<View> {
   const title = decodeEntities(post.title)
   const crumbs = [{ name: '首頁', url: '/' }, ...chain.map((t) => ({ name: t.name, url: t.path })), { name: title, url: path }]
 
-  // prev/next (global, by date)
-  const [prevQ, nextQ] = await Promise.all([
-    db().from('posts').select('id,path,title,featured_media_id,date').eq('post_type', 'post').eq('status', 'publish').lt('date', post.date).order('date', { ascending: false }).limit(1),
-    db().from('posts').select('id,path,title,featured_media_id,date').eq('post_type', 'post').eq('status', 'publish').gt('date', post.date).order('date', { ascending: true }).limit(1),
-  ])
-  const prev = prevQ.data?.[0]
-  const next = nextQ.data?.[0]
+  // prev/next: Blocksy uses get_adjacent_post(in_same_term=true, taxonomy=category) -> only posts sharing a category, by date (ID breaks ties)
+  let prev: Row | undefined
+  let next: Row | undefined
+  if (cats.length) {
+    const rel = await db().from('post_terms').select('post_id').in('term_id', cats.map((c) => c.id))
+    if (rel.error) throw rel.error
+    const ids = [...new Set((rel.data || []).map((r) => r.post_id))].filter((id) => id !== post.id)
+    if (ids.length) {
+      const cand = await db().from('posts').select('id,path,title,featured_media_id,date').eq('post_type', 'post').eq('status', 'publish').in('id', ids)
+      if (cand.error) throw cand.error
+      const key = (r: Row) => [new Date(r.date).getTime(), Number(r.id)] as const
+      const cmp = (a: Row, b: Row) => { const [ad, ai] = key(a), [bd, bi] = key(b); return ad - bd || ai - bi }
+      const sorted = (cand.data || []).sort(cmp)
+      prev = sorted.filter((r) => cmp(r, post) < 0).pop()
+      next = sorted.find((r) => cmp(r, post) > 0)
+    }
+  }
   // related: same categories
   const related = primary ? await listPosts({ termIds: cats.map((c) => c.id), perPage: 8, excludeId: post.id }) : { rows: [], total: 0 }
   const relTerms = await getPostTerms(related.rows.map((r) => r.id))
@@ -345,7 +357,7 @@ async function productArchive(opts: { kind: string; path: string; page: number; 
   const orderSel = orderingForm(opts.orderby || 'menu_order', opts.path) + (await categoryFilter(opts.path))
   const list = rows.length
     ? `<ul class="products columns-3" data-products="type-2"> ${cards} </ul> ${pagination(opts.path, opts.page, pages, opts.query)}`
-    : '<div class="woocommerce-no-products-found"> <div class="woocommerce-info" role="status"> 沒有找到符合的商品。 </div> </div>'
+    : '<div class="woocommerce-no-products-found"> <div class="woocommerce-info" role="status"> 找不到符合您選擇的商品 </div> </div>'
   const inner = `<div class="ct-container"  data-vertical-spacing="top:bottom"><section><header class="woocommerce-products-header"> 	 	</header> <div class="woocommerce-notices-wrapper"></div><div class="woo-listing-top">${orderSel}</div>${list}</section></div>`
   const seo = { ...opts.seo }
   if (opts.page < pages) seo.next = abs(encPath(`${opts.path}page/${opts.page + 1}/`))
