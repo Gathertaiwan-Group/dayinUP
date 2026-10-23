@@ -1,0 +1,7 @@
+/* Tailwind utilities only — no preflight, so the original Blocksy/WooCommerce CSS stays authoritative.
+   source(none): never auto-generate utilities from WordPress class names (e.g. "columns-3") found in our templates.
+   Add explicit @source paths here when Tailwind classes are used in new components. */
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../components/tw";

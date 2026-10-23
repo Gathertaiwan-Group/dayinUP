@@ -1,0 +1,126 @@
+/* DayinUP Next.js additions — keeps the original Blocksy look; only styles things WP produced via JS/plugins. */
+#dayinup-body { min-height: 100vh; }
+
+/* woomp variation radios (was an inline <style> printed by the woomp plugin) */
+.variation-radios + select, .variation-radios + select + * { display: none !important; }
+.variation-radios + select + a.reset_variations { display: block !important; }
+.variation-radios > * { cursor: pointer; }
+.variation-radios.tag { display: flex; flex-wrap: wrap; margin-bottom: 1rem; }
+.tag-list label { display: inline-block; background: #efefef; padding: .1rem .8rem; cursor: pointer; margin: .8rem .8rem 0 0; border-radius: 3px; }
+.tag-list input:checked + label { color: #fff; }
+.tag-list input:disabled + label { text-decoration: line-through; text-decoration-thickness: 3px; opacity: .7; cursor: default; }
+.single_add_to_cart_button.disabled { opacity: .5; cursor: not-allowed; }
+.single_add_to_cart_button.loading, .ajax_add_to_cart.loading { opacity: .6; pointer-events: none; }
+.dayinup-discount { margin: .5em 0 0; color: var(--theme-palette-color-2); font-size: 14px; }
+.dayinup-qty-discounts { margin: 1em 0; font-size: 14px; }
+.dayinup-qty-discounts summary { cursor: pointer; font-weight: 600; color: var(--theme-palette-color-3); }
+.dayinup-qty-discounts table { margin-top: .5em; width: 100%; }
+.dayinup-qty-discounts th, .dayinup-qty-discounts td { padding: 6px 8px; text-align: left; }
+
+/* Woo ordering select (Blocksy hid the toolbar on the old site — keep it compact and right aligned) */
+
+.woo-listing-top:empty { display: none; }
+
+[data-view="front"] .woo-listing-top { display: none; }
+
+/* lightbox (replaces PhotoSwipe) */
+.dayinup-lightbox { position: fixed; inset: 0; z-index: 1000000; background: rgba(0,0,0,.9); display: flex; align-items: center; justify-content: center; }
+.dayinup-lightbox img { max-width: 92vw; max-height: 88vh; object-fit: contain; }
+.dayinup-lightbox button { position: absolute; background: transparent; border: 0; color: #fff; font-size: 44px; line-height: 1; cursor: pointer; padding: 10px 16px; }
+.dayinup-lb-close { top: 10px; right: 10px; }
+.dayinup-lb-prev { left: 10px; top: 50%; transform: translateY(-50%); }
+.dayinup-lb-next { right: 10px; top: 50%; transform: translateY(-50%); }
+.dayinup-lb-count { position: absolute; top: 18px; left: 20px; color: #fff; font-size: 14px; }
+
+/* form result messages */
+.dayinup-form-msg { margin: 0 0 1em; padding: 10px 14px; border-radius: 3px; font-size: 14px; }
+.dayinup-form-msg.woocommerce-message { background: #e9f7ef; color: #1e7b44; }
+.dayinup-form-msg.woocommerce-error { background: #fdecea; color: #a12622; }
+.woocommerce-notices-wrapper .woocommerce-message, .woocommerce-notices-wrapper .woocommerce-error { margin: 0 0 1.5em; }
+
+/* membership shortcodes from the old Restrict Content Pro pages */
+.dayinup-shortcode:empty { display: none; }
+
+/* contact page */
+.dayinup-contact { max-width: 720px; margin: 0 auto; }
+.dayinup-contact form p { margin-bottom: 1em; }
+.dayinup-contact label { display: block; margin-bottom: 6px; font-weight: 500; }
+
+/* cart / checkout (WooCommerce Blocks markup rendered by React) */
+.wp-block-woocommerce-cart, .wp-block-woocommerce-checkout { margin-block: 40px; }
+.wc-block-components-sidebar-layout { display: flex; flex-wrap: wrap; gap: 48px; align-items: flex-start; }
+.wc-block-components-sidebar-layout .wc-block-components-main { flex: 1 1 560px; min-width: 0; }
+.wc-block-components-sidebar-layout .wc-block-components-sidebar { flex: 0 1 360px; width: 100%; }
+.wc-block-cart-items { width: 100%; border-collapse: collapse; }
+.wc-block-cart-items th { text-align: left; font-size: 12px; text-transform: uppercase; padding: 8px 0; border-bottom: 1px solid var(--theme-border-color, #e0e5eb); }
+.wc-block-cart-items__header-total { text-align: right !important; }
+.wc-block-cart-items td { padding: 16px 0; border-bottom: 1px solid var(--theme-border-color, #e0e5eb); vertical-align: top; }
+.wc-block-cart-item__image { width: 120px; padding-right: 16px !important; }
+.wc-block-cart-item__total { text-align: right; white-space: nowrap; }
+.wc-block-cart-item__quantity { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.wc-block-components-quantity-selector { display: inline-flex; border: 1px solid var(--theme-border-color, #ccc); border-radius: 4px; }
+.wc-block-components-quantity-selector input { width: 46px; text-align: center; border: 0; -moz-appearance: textfield; order: 2; }
+.wc-block-components-quantity-selector__button { background: none; border: 0; width: 32px; cursor: pointer; }
+.wc-block-components-quantity-selector__button--minus { order: 1; }
+.wc-block-components-quantity-selector__button--plus { order: 3; }
+.wc-block-cart-item__remove-link { background: none; border: 0; text-decoration: underline; font-size: 12px; cursor: pointer; color: inherit; }
+.wc-block-components-product-details { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+.wc-block-components-totals-item { display: flex; justify-content: space-between; padding: 8px 0; }
+.wc-block-components-totals-footer-item { font-size: 18px; font-weight: 700; border-top: 1px solid var(--theme-border-color, #e0e5eb); padding-top: 14px; }
+.wc-block-cart__totals-title { font-size: 14px; text-transform: uppercase; margin: 0 0 8px; }
+.wc-block-components-button.contained { display: inline-flex; justify-content: center; align-items: center; width: 100%; min-height: 50px; background: var(--theme-button-background-initial-color, var(--theme-palette-color-2)); color: #fff; border: 0; border-radius: 3px; font-weight: 600; cursor: pointer; text-decoration: none; }
+.wc-block-components-button.contained:hover { background: var(--theme-button-background-hover-color, var(--theme-palette-color-4)); color: #fff; }
+.wc-block-components-notice-banner { padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; border: 1px solid; }
+.wc-block-components-notice-banner.is-error { background: #fff0f0; border-color: #cc1818; color: #a00; }
+.wc-block-components-notice-banner.is-info { background: #f0f6fc; border-color: #1877F2; }
+.is-busy { opacity: .6; pointer-events: none; }
+
+.dayinup-checkout .wc-block-components-checkout-step { border: 0; padding: 0; margin: 0 0 32px; }
+.dayinup-checkout .wc-block-components-checkout-step__title { font-size: 20px; margin: 0 0 8px; }
+.dayinup-checkout .wc-block-components-checkout-step__description { font-size: 14px; opacity: .8; margin: 0 0 16px; }
+.dayinup-checkout .wc-block-components-address-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dayinup-checkout .wc-block-components-address-form > :first-child,
+.dayinup-checkout .wc-block-components-address-form__company,
+.dayinup-checkout .wc-block-components-address-form__address_1,
+.dayinup-checkout .wc-block-components-address-form__phone { grid-column: 1 / -1; }
+.dayinup-checkout .wc-block-components-text-input { position: relative; display: flex; flex-direction: column-reverse; gap: 4px; }
+.dayinup-checkout .wc-block-components-text-input label, .dayinup-checkout .components-base-control__label { font-size: 13px; }
+.dayinup-checkout input[type=text], .dayinup-checkout input[type=email], .dayinup-checkout input[type=tel], .dayinup-select { width: 100%; height: 48px; }
+.dayinup-checkout .wc-block-components-combobox label { display: block; font-size: 13px; margin-bottom: 4px; }
+.dayinup-checkout .wc-block-components-radio-control-accordion-option { border: 1px solid var(--theme-border-color, #e0e5eb); border-radius: 4px; padding: 14px 16px; }
+.dayinup-checkout .wc-block-components-radio-control__option { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.dayinup-checkout .wc-block-components-radio-control-accordion-content p { font-size: 14px; margin: 8px 0 0; }
+.wc-block-checkout__actions_row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; }
+.wc-block-checkout__actions_row .wc-block-components-button { width: auto; padding: 0 32px; }
+.wc-block-checkout__terms { font-size: 13px; opacity: .8; margin-top: 16px; }
+.wc-block-components-order-summary-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--theme-border-color, #e0e5eb); }
+.wc-block-components-order-summary-item__image { position: relative; flex: 0 0 48px; }
+.wc-block-components-order-summary-item__quantity { position: absolute; top: -8px; right: -8px; background: #fff; border: 2px solid; border-radius: 1em; min-width: 20px; height: 20px; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.wc-block-components-order-summary-item__description { flex: 1; font-size: 13px; }
+.wc-block-components-order-summary-item__description h3 { font-size: 14px; margin: 0 0 4px; }
+.wc-block-components-checkout-order-summary__title-text { font-weight: 700; text-transform: uppercase; font-size: 14px; }
+@media (max-width: 689.98px) {
+  .dayinup-checkout .wc-block-components-address-form { grid-template-columns: 1fr; }
+  .wc-block-cart-items thead { display: none; }
+  .wc-block-cart-item__image { width: 80px; }
+}
+
+/* my account */
+.woocommerce-MyAccount-navigation ul { list-style: none; padding: 0; }
+.woocommerce-MyAccount-navigation li.is-active a { font-weight: 700; }
+.password-input { position: relative; display: block; }
+.password-input .show-password-input { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: 0; cursor: pointer; width: 22px; height: 22px; }
+.password-input .show-password-input::after { content: '👁'; font-size: 14px; opacity: .6; }
+
+/* shop tools: sort + category filter sit inside the archive's top spacing (no layout shift vs. the old site) */
+[data-prefix="woo_categories"] main section { position: relative; }
+[data-prefix="woo_categories"] .woo-listing-top { position: absolute; top: -32px; right: 0; display: flex; gap: 8px; z-index: 2; }
+[data-prefix="woo_categories"] .woo-listing-top select { height: 28px; min-height: 28px; min-width: 150px; font-size: 13px; padding: 0 28px 0 10px; }
+@media (max-width: 689.98px) { [data-prefix="woo_categories"] .woo-listing-top select { min-width: 120px; } }
+
+/* "New in store" grid on the empty cart: WooCommerce served square 300x300 crops */
+.wc-block-grid__product-image img { aspect-ratio: 1 / 1; object-fit: cover; width: 300px !important; max-width: 100% !important; height: auto !important; }
+.dayinup-register { max-width: 420px; }
+.dayinup-register p { margin-bottom: 1em; }
+.dayinup-register label { display: block; margin-bottom: 6px; }
+.wp-block-woocommerce-cart .wc-block-components-sidebar-layout { margin-top: 40px; }
