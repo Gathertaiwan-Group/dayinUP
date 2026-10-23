@@ -67,6 +67,14 @@ export function buildMcpServer(actor: Actor) {
     },
   );
 
+  // 所有工具一律採嚴格 schema（additionalProperties:false）：不認得的參數直接回錯，避免被靜默忽略。
+  const registerToolOrig = server.registerTool.bind(server) as (...a: any[]) => any;
+  (server as any).registerTool = (name: string, cfg: any, cb: any) => {
+    const sch = cfg?.inputSchema;
+    const strict = sch && !sch._zod && !sch._def ? z.object(sch).strict() : sch;
+    return registerToolOrig(name, { ...cfg, inputSchema: strict }, cb);
+  };
+
   // ---------- 文章／頁面 ----------
   server.registerTool(
     "list_posts",
@@ -91,6 +99,7 @@ export function buildMcpServer(actor: Actor) {
   const postFields = {
     title: z.string().optional(),
     content_html: z.string().optional().describe("HTML 內容"),
+    content: z.string().optional().describe("content_html 的別名（兩者都給時以 content_html 為準）"),
     excerpt_html: z.string().optional().describe("摘要 HTML"),
     slug: z.string().optional().describe("留空依標題自動產生"),
     status: z.enum(["draft", "pending", "private", "publish", "future"]).optional(),
@@ -114,8 +123,9 @@ export function buildMcpServer(actor: Actor) {
       description: "新增文章或頁面，預設為草稿。",
       inputSchema: { post_type: z.enum(["post", "page", "ct_content_block"]).default("post"), ...postFields, title: z.string() },
     },
-    async ({ term_ids, ...data }) =>
+    async ({ term_ids, content, ...data }) =>
       run(async () => {
+        if (data.content_html === undefined && content !== undefined) data.content_html = content;
         const row = await createRecord("posts", { ...data, status: data.status ?? "draft" }, actor);
         if (term_ids) await setObjectTerms("post", row.id, term_ids, actor, ["category", "post_tag"]);
         return row;
@@ -124,8 +134,9 @@ export function buildMcpServer(actor: Actor) {
   server.registerTool(
     "update_post",
     { title: "修改文章／頁面", description: "修改指定欄位（只傳要改的欄位）。", inputSchema: { id: z.number().int(), ...postFields } },
-    async ({ id, term_ids, ...data }) =>
+    async ({ id, term_ids, content, ...data }) =>
       run(async () => {
+        if (data.content_html === undefined && content !== undefined) data.content_html = content;
         const row = await updateRecord("posts", id, data, actor);
         if (term_ids) await setObjectTerms("post", id, term_ids, actor, ["category", "post_tag"]);
         return row;

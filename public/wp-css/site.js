@@ -73,6 +73,46 @@
   })
   d.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hidePanel(); closeLightbox() } })
 
+  /* ------------------------------------------------------------ desktop dropdown menus (Blocksy data-interaction=hover) */
+  $$('nav[data-id="menu"], nav.menu-container').forEach(function (nav) {
+    if (nav.closest('#offcanvas')) return
+    // Blocksy's menu script flips data-responsive="no" → "yes" once the menu is measured;
+    // while it is "no" the theme CSS keeps every .sub-menu at display:none.
+    if (nav.getAttribute('data-responsive') === 'no') nav.setAttribute('data-responsive', 'yes')
+    var hoverMode = (nav.getAttribute('data-interaction') || 'hover').indexOf('hover') !== -1
+    $$('li.menu-item-has-children, li[class*="animated-submenu"]', nav).forEach(function (li) {
+      if (!$('.sub-menu', li)) return
+      var timer = null
+      var ghost = $('.ct-toggle-dropdown-desktop-ghost', li)
+      function setOpen(open) {
+        clearTimeout(timer)
+        li.classList.toggle('ct-active', open)
+        if (ghost) ghost.setAttribute('aria-expanded', open ? 'true' : 'false')
+        if (open) {
+          // close sibling dropdowns
+          var p = li.parentNode
+          Array.prototype.forEach.call(p ? p.children : [], function (s) { if (s !== li && s.classList) s.classList.remove('ct-active') })
+        }
+      }
+      if (hoverMode) {
+        li.addEventListener('mouseenter', function () { setOpen(true) })
+        li.addEventListener('mouseleave', function () { clearTimeout(timer); timer = setTimeout(function () { setOpen(false) }, 120) })
+      }
+      li.addEventListener('focusin', function () { setOpen(true) })
+      li.addEventListener('focusout', function (e) { if (!li.contains(e.relatedTarget)) setOpen(false) })
+      // click / tap on the top-level link: first tap opens on touch devices or click-interaction menus
+      var a = li.querySelector(':scope > a')
+      if (a) a.addEventListener('click', function (e) {
+        var touch = window.matchMedia && window.matchMedia('(hover: none)').matches
+        if ((!hoverMode || touch) && !li.classList.contains('ct-active')) { e.preventDefault(); setOpen(true) }
+      })
+    })
+  })
+  d.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target : null
+    $$('nav[data-id="menu"] li.ct-active').forEach(function (li) { if (!t || !li.contains(t)) li.classList.remove('ct-active') })
+  })
+
   /* ------------------------------------------------------------ sticky header (shrink) + back to top */
   $$('.ct-sticky-container').forEach(function (c) {
     var inner = c.firstElementChild

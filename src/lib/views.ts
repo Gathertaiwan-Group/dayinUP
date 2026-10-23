@@ -655,16 +655,6 @@ export const resolveView = cache(async (segments: string[], sp: Record<string, s
       seo: { title: '聯絡我們 - DayinUP', description: 'DayinUP 一站式外包接案資源平台聯絡方式', robots: 'follow, index', canonical: abs('/contact/'), ogType: 'article', ogTitle: '聯絡我們 - DayinUP', ogUrl: abs('/contact/'), ogImage: PAGES.default_og_image },
     }
   }
-  if (path === '/navigation/') {
-    const { data } = await db().from('posts').select('*').eq('post_type', 'wp_navigation').limit(1)
-    const nav = data?.[0]
-    return {
-      kind: 'navigation', status: 200, css: [],
-      ...shellPage(path, nav?.id || 0, 'wp-singular wp_navigation-template-default single single-wp_navigation', `<h1>${esc(decodeEntities(nav?.title || 'Navigation'))}</h1>${nav?.content_html || ''}${await navList()}`),
-      seo: { title: `${decodeEntities(nav?.title || 'Navigation')} - DayinUP`, robots: 'follow, noindex', ogType: 'article', ogTitle: 'Navigation - DayinUP', ogImage: PAGES.default_og_image },
-    }
-  }
-
   // pages & posts by path
   if (page === 1) {
     const post = await getPostByPath(path)
@@ -722,12 +712,6 @@ function emptyCartHtml(content: string): string {
 
 function contactHtml(): string {
   return `<div class="dayinup-contact"><h1 class="page-title">聯絡我們</h1><p>有任何合作或活動問題，歡迎留下訊息，我們會盡快回覆。也可以來信 <a href="mailto:dayin.team@gmail.com">dayin.team@gmail.com</a> 或加入 <a href="https://line.me/R/ti/p/@730wkluo" target="_blank" rel="noopener">LINE 官方帳號</a>。</p><form class="dayinup-form" data-dayinup-form="contact" action="/api/forms/contact/" method="post"><p><label for="c-name">姓名 *</label><input id="c-name" name="name" type="text" required></p><p><label for="c-email">電子郵件 *</label><input id="c-email" name="email" type="email" required></p><p><label for="c-subject">主旨</label><input id="c-subject" name="subject" type="text"></p><p><label for="c-message">訊息 *</label><textarea id="c-message" name="message" rows="6" required></textarea></p><p><button type="submit" class="wp-element-button">送出</button></p></form></div>`
-}
-
-async function navList(): Promise<string> {
-  const { getMenuItems } = await import('./data')
-  const items = (await getMenuItems()).filter((i) => i.menus?.slug === 'main' && !i.parent_id)
-  return `<ul>${items.map((i) => `<li><a href="${esc(i.url)}">${esc(i.label)}</a></li>`).join('')}</ul>`
 }
 
 /* ---------------------------------------------------------------- admin preview (drafts / scheduled / private) */
