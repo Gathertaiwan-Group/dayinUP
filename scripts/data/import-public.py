@@ -113,6 +113,25 @@ def rewrite(s):
     return s
 
 
+# Store API strips oEmbed iframes, leaving empty wp-block-embed__wrapper divs; refill them
+# from WP REST content.rendered (same order).
+_WRAP_RE = re.compile(r'(<div class="wp-block-embed__wrapper">)(.*?)(</div>)', re.S)
+
+
+def restore_embeds(desc, rendered):
+    src = [m.group(2).strip() for m in _WRAP_RE.finditer(rendered or '')]
+    if not src or not desc:
+        return desc
+    it = iter(src)
+
+    def fill(m):
+        inner = next(it, None)
+        if m.group(2).strip() or inner is None or '<iframe' not in inner:
+            return m.group(0)
+        return m.group(1) + '\n' + inner + '\n' + m.group(3)
+    return _WRAP_RE.sub(fill, desc)
+
+
 def rewrite_json(v):
     return json.loads(rewrite(json.dumps(v, ensure_ascii=False))) if v is not None else None
 
@@ -319,7 +338,7 @@ def main():
         prod_rows.append({
             'id': p['id'], 'slug': nfc(urllib.parse.unquote(p['slug'])), 'path': path_of(p['link']),
             'name': htmllib.unescape(p['title']['rendered']), 'type': s['type'], 'status': p['status'],
-            'description_html': rewrite(s.get('description') or p['content']['rendered']),
+            'description_html': rewrite(restore_embeds(s.get('description') or p['content']['rendered'], p['content']['rendered'])),
             'short_description_html': rewrite(s.get('short_description') or (p.get('excerpt') or {}).get('rendered') or ''),
             'sku': s.get('sku') or None, 'currency': pr.get('currency_code') or 'TWD',
             'regular_price': money(pr.get('regular_price')),

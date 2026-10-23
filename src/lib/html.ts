@@ -141,7 +141,9 @@ export function postClasses(p: Row, terms: Row[], extra: string[] = []): string 
 
 export function excerptHtml(p: Row): string {
   let ex = String(p.excerpt_html || '').trim()
-  ex = ex.replace(/\s*(&#8230;|&hellip;|…)\s*(<\/p>)?\s*$/i, '...$2')
+  // Blocksy prints the excerpt with every ellipsis *entity* turned into '...' (surrounding spaces kept;
+  // a literal U+2026 typed by the author is left alone)
+  ex = ex.replace(/&#8230;|&hellip;/gi, '...')
   return ex
 }
 

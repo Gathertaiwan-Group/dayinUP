@@ -18,8 +18,9 @@ export default async function Shell({ view, path }: { view: View; path: string }
       {view.seo.modified && <meta property="og:updated_time" content={iso(view.seo.modified)} />}
       {view.seo.ogType === 'article' && view.seo.published && <meta property="article:published_time" content={iso(view.seo.published)} />}
       {view.seo.ogType === 'article' && view.seo.modified && <meta property="article:modified_time" content={iso(view.seo.modified)} />}
-      {view.seo.next && <link rel="next" href={view.seo.next} />}
-      {view.seo.prev && <link rel="prev" href={view.seo.prev} />}
+      {/* Rank Math emits rel=next/prev only together with a canonical (none on noindex pages or the shop archive) */}
+      {view.seo.canonical && view.seo.next && <link rel="next" href={view.seo.next} />}
+      {view.seo.canonical && view.seo.prev && <link rel="prev" href={view.seo.prev} />}
       {ld && <script type="application/ld+json" className="rank-math-schema" dangerouslySetInnerHTML={{ __html: ld }} />}
       <div
         id="dayinup-body"

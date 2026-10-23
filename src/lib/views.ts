@@ -321,8 +321,8 @@ async function postArchive(opts: {
   if (opts.page > 1) seo.prev = abs(encPath(opts.page === 2 ? opts.path : `${opts.path}page/${opts.page - 1}/`) + (opts.query || ''))
   if (opts.page > 1) {
     seo.title = seo.title.replace(/ - DayinUP$/, ` - 第 ${opts.page} 頁 - DayinUP`)
-    seo.canonical = abs(encPath(`${opts.path}page/${opts.page}/`))
-    seo.ogUrl = seo.canonical
+    if (opts.seo.canonical) seo.canonical = abs(encPath(`${opts.path}page/${opts.page}/`))
+    seo.ogUrl = seo.canonical || abs(encPath(`${opts.path}page/${opts.page}/`))
   }
   return {
     kind: opts.kind,
@@ -364,7 +364,7 @@ async function productArchive(opts: { kind: string; path: string; page: number; 
   if (opts.page > 1) {
     seo.prev = abs(encPath(opts.page === 2 ? opts.path : `${opts.path}page/${opts.page - 1}/`))
     seo.title = seo.title.replace(/ - DayinUP$/, ` - 第 ${opts.page} 頁 - DayinUP`)
-    seo.canonical = abs(encPath(`${opts.path}page/${opts.page}/`))
+    if (opts.seo.canonical) seo.canonical = abs(encPath(`${opts.path}page/${opts.page}/`))
   }
   return {
     kind: opts.kind,
@@ -440,7 +440,8 @@ async function productView(slug: string, path: string): Promise<View | null> {
   if (p.type === 'variable' && p.variations.length) {
     const attr = p.attributes.find((a: Row) => a.is_variation) || p.attributes[0] || { name: '票種', options: [] }
     const attrKey = 'attribute_' + encodeURIComponent(attr.name).toLowerCase()
-    const options: string[] = attr.options?.length ? attr.options : p.variations.map((v: Row) => v.attributes?.[attr.name]).filter(Boolean)
+    // WC drops blank attribute terms (wc_get_text_attributes filters empty after trim)
+    const options: string[] = (attr.options?.length ? attr.options : p.variations.map((v: Row) => v.attributes?.[attr.name])).filter((o: unknown) => typeof o === 'string' && o.trim() !== '')
     const rulesByVar = new Map<number, Row>()
     for (const r of p.discount_rules) if (r.variation_id) rulesByVar.set(r.variation_id, r)
     const vdata = p.variations.map((v: Row) => {
@@ -592,7 +593,7 @@ export const resolveView = cache(async (segments: string[], sp: Record<string, s
     return productArchive({
       kind: 'shop', path, page, orderby: sp.orderby, query: sp.orderby ? `?orderby=${encodeURIComponent(sp.orderby)}` : '',
       bodyCls: 'archive post-type-archive post-type-archive-product woocommerce-shop woocommerce woocommerce-page',
-      seo: { title: '商品 - DayinUP', description: '商品 Archive - DayinUP', robots: 'follow, index', canonical: abs('/shop/'), ogType: 'article', ogTitle: '商品 - DayinUP', ogDescription: '商品 Archive - DayinUP', ogUrl: abs('/shop/'), ogImage: PAGES.default_og_image, schema: baseSchema('/shop/', '商品 - DayinUP') },
+      seo: { title: '商品 - DayinUP', description: '商品 Archive - DayinUP', robots: 'follow, index', ogType: 'article', ogTitle: '商品 - DayinUP', ogDescription: '商品 Archive - DayinUP', ogUrl: abs('/shop/'), ogImage: PAGES.default_og_image, schema: baseSchema('/shop/', '商品 - DayinUP') },
     })
   }
   if (segs[0] === 'product' && segs.length === 2 && page === 1) {
