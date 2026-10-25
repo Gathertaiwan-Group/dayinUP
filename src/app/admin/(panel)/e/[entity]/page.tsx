@@ -47,7 +47,7 @@ export default async function EntityList({ params, searchParams }: { params: Pro
         {def.search.length ? <input type="search" name="q" defaultValue={q} placeholder="搜尋" /> : null}
         {def.search.length ? <button className="adm-btn" type="submit">搜尋</button> : null}
         {entity === "redirects" ? <span className="adm-muted">轉址規則由前台 proxy 讀取（最多 5 分鐘快取）。</span> : null}
-        {["customers", "coupons"].includes(entity) && !total ? <span className="adm-muted">舊站私有資料待第三階段由資料庫備份匯入。</span> : null}
+        
       </form>
       <table className="adm-table">
         <thead>

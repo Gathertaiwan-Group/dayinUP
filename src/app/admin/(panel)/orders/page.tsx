@@ -61,7 +61,7 @@ export default async function OrderList({ searchParams }: { searchParams: Promis
           ))}
           {!rows.length ? (
             <tr>
-              <td colSpan={5} className="adm-muted">沒有訂單。舊站訂單、顧客、優惠券等私有資料待第三階段由資料庫備份匯入。</td>
+              <td colSpan={5} className="adm-muted">沒有符合條件的訂單。</td>
             </tr>
           ) : null}
         </tbody>

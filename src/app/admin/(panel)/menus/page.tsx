@@ -33,7 +33,7 @@ export default async function Menus({ searchParams }: { searchParams: Promise<SP
           ))}
         </tbody>
       </table>
-      <p className="adm-muted adm-mt">前台頁首主選單與行動版抽屜讀取代稱為「main」的選單（兩層）。舊站 wp_nav_menu 原始設定待第三階段由資料庫匯入校正。</p>
+      <p className="adm-muted adm-mt">前台頁首主選單與行動版抽屜讀取代稱為「main」的選單（兩層）。資料已由舊站 WordPress 選單（nav_menu／nav_menu_item）匯入，項目編號沿用舊站；草稿項目不會顯示於前台。</p>
     </>
   );
 }

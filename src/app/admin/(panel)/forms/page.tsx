@@ -46,7 +46,7 @@ export default async function Forms({ searchParams }: { searchParams: Promise<SP
           ))}
         </tbody>
       </table>
-      <p className="adm-muted adm-mt">聯絡我們、電子報訂閱等前台表單的提交會記錄於此（密碼等敏感欄位不儲存）。舊站 Fluent Forms／Elementor 提交紀錄待第三階段由資料庫備份匯入。</p>
+      <p className="adm-muted adm-mt">聯絡我們、電子報訂閱等前台表單的提交會記錄於此（密碼等敏感欄位不儲存）。舊站 Fluent Forms 與 Elementor 表單的提交紀錄已匯入。</p>
     </>
   );
 }

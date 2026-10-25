@@ -65,7 +65,7 @@ export default async function Dashboard() {
               </tbody>
             </table>
           ) : (
-            <p className="adm-muted">尚無訂單（舊站訂單待第三階段由資料庫備份匯入）。</p>
+            <p className="adm-muted">尚無訂單。</p>
           )}
           <h2 className="adm-h2 adm-mt">庫存警示</h2>
           {lowStock?.length ? (

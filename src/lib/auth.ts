@@ -32,12 +32,14 @@ export async function currentUser() {
 }
 
 /** Find (or create) the site_dayinup.customers row for a Supabase user; links legacy WP customers by email. */
-export async function customerFor(user: { id: string; email?: string | null; user_metadata?: any }) {
+export async function customerFor(user: { id: string; email?: string | null; email_confirmed_at?: string | null; user_metadata?: any }) {
   const db = admin()
   const byAuth = await db.from('customers').select('*').eq('auth_user_id', user.id).limit(1)
   if (byAuth.data?.[0]) return byAuth.data[0]
-  if (user.email) {
-    const byEmail = await db.from('customers').select('*').ilike('email', user.email).is('auth_user_id', null).limit(1)
+  // Link a legacy (imported) customer only after Supabase has verified the e-mail; exact (lower-case) match,
+  // registered WP users (low ids) before guest-checkout records.
+  if (user.email && user.email_confirmed_at) {
+    const byEmail = await db.from('customers').select('*').eq('email', user.email.trim().toLowerCase()).is('auth_user_id', null).order('id').limit(1)
     if (byEmail.data?.[0]) {
       const up = await db.from('customers').update({ auth_user_id: user.id, date_modified: new Date().toISOString() }).eq('id', byEmail.data[0].id).select('*').single()
       return up.data
