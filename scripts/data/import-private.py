@@ -666,6 +666,10 @@ def stock_patch(pid):
             'stock_quantity': int(float(m['_stock'])) if managed and m.get('_stock') not in (None, '') else None}
 
 
+# WooCommerce stores _price = '' for products without a price (shown as "no price", not purchasable); the public
+# Store API reports those as "0", so the public import wrote 0.00 → reset to NULL.
+empty_price = [i for i in db_products if postmeta.get(i, {}).get('_price') == '' and postmeta.get(i, {}).get('_regular_price') in (None, '')]
+
 stock_rows = {'products': {i: stock_patch(i) for i in db_products}, 'product_variations': {i: stock_patch(i) for i in db_variations}}
 
 
@@ -685,6 +689,9 @@ def write():
                 rest('PATCH', table, patch, query=f'?id=eq.{i}')
                 changed += 1
         print(f'  {table}: stock fields updated on {changed} rows')
+    for i in empty_price:
+        rest('PATCH', 'products', {'price': None, 'regular_price': None, 'sale_price': None, 'price_min': None, 'price_max': None, 'is_purchasable': False}, query=f'?id=eq.{i}')
+    print(f'  products: empty _price → NULL on {len(empty_price)} rows')
     stale_guests = [str(g) for g in guest_alias]
     if stale_guests:   # rows from an earlier run that are now merged into the registered customer
         for t in ('orders', 'form_submissions', 'carts'):

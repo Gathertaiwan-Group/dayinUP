@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { cartHasItems } from '@/lib/cart'
 import { resolveView } from '@/lib/views'
 import { toMetadata } from '@/lib/metadata'
 import Shell from '@/components/Shell'
@@ -27,6 +28,7 @@ export default async function Page({ params, searchParams }: Props) {
   const { slug = [] } = await params
   const view = await resolveView(slug, flat(await searchParams))
   if (view.status === 404) notFound()
+  if (view.kind === 'checkout' && !(await cartHasItems())) redirect('/cart/')
   const path = '/' + slug.map((s) => decodeURIComponent(s)).join('/') + (slug.length ? '/' : '')
   return <Shell view={view} path={path} />
 }

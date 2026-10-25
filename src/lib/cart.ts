@@ -72,6 +72,8 @@ export async function priceFor(productId: number, variationId: number | null) {
   const stock = src.stock_status
   const inStock = stock !== 'outofstock'
   if (!inStock || p.is_purchasable === false || (v && v.is_purchasable === false)) return { error: `您無法將「${p.name}」加入購物車，因為此商品已售完。` }
+  // WooCommerce: a product whose _price is empty is not purchasable (no price is shown either)
+  if (src.price == null && src.regular_price == null) return { error: `抱歉，「${p.name}」無法購買。` }
   const unit = Number(src.price ?? src.regular_price ?? 0)
   // WooCommerce: a managed stock of 0 that is still in stock/on backorder means backorders are allowed → no cap
   const maxQty = src.manage_stock && src.stock_status === 'instock' && src.backorders === 'no' && Number(src.stock_quantity) > 0 ? Number(src.stock_quantity) : null
@@ -151,4 +153,11 @@ export function couponDiscount(c: any, items: CartLine[], base: number): number 
   else if (c.discount_type === 'fixed_product') amt = eligible.reduce((s, i) => s + Math.min(i.line_total, Number(c.amount) * i.quantity), 0)
   else amt = Math.min(Number(c.amount), base)
   return Math.min(amt, base)
+}
+
+/** True when the visitor's cart (cookie session) holds at least one purchasable line — WooCommerce redirects /checkout/ to /cart/ otherwise. */
+export async function cartHasItems(): Promise<boolean> {
+  const cart = await getCartRow(false)
+  if (!cart) return false
+  return (await summarize(cart)).items.length > 0
 }

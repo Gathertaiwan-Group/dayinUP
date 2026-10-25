@@ -43,6 +43,9 @@ export async function POST(req: Request) {
     customerId = c?.id ?? null
     if (c && b.save_address !== false) await db.from('customers').update({ billing, date_modified: new Date().toISOString() }).eq('id', c.id)
   }
+  // Guest checkout: WooCommerce records guests in wc_customer_lookup → find (by billing e-mail) or create a
+  // site_dayinup.customers row. No auth.users account is created; it is linked later after e-mail verification.
+  if (!customerId && billing.email) customerId = await guestCustomer(db, billing).catch(() => null)
   const attribution: Record<string, string> = {}
   for (const [k, v] of Object.entries(b.attribution || {})) if (typeof v === 'string' || typeof v === 'number') attribution[k] = String(v).slice(0, 500)
 
@@ -98,7 +101,48 @@ export async function POST(req: Request) {
     const row = cur.data?.[0]
     if (row) await db.from('coupons').update({ usage_count: (row.usage_count || 0) + 1, used_by: [...(row.used_by || []), billing.email || ''] }).eq('id', row.id)
   }
+  if (customerId) await refreshCustomerTotals(db, customerId).catch(() => null)
   await db.from('cart_items').delete().eq('cart_id', cart.id)
   await db.from('carts').update({ coupon_codes: [], customer_id: customerId }).eq('id', cart.id)
   return NextResponse.json({ ok: true, order_id: orderId, order_key: ins.data.order_key, redirect: `/checkout/order-received/${orderId}/?key=${ins.data.order_key}` })
+}
+
+async function guestCustomer(db: ReturnType<typeof admin>, billing: Record<string, string>): Promise<number | null> {
+  const email = billing.email.trim().toLowerCase()
+  const found = await db.from('customers').select('id').eq('email', email).order('id').limit(1)
+  if (found.data?.[0]) return found.data[0].id
+  const now = new Date().toISOString()
+  const ins = await db
+    .from('customers')
+    .insert({
+      email,
+      first_name: billing.first_name || null,
+      last_name: billing.last_name || null,
+      display_name: [billing.last_name, billing.first_name].filter(Boolean).join(' ') || null,
+      role: 'guest',
+      billing,
+      shipping: {},
+      is_paying_customer: false,
+      orders_count: 0,
+      total_spent: 0,
+      date_created: now,
+      date_modified: now,
+      meta: { source: 'dayinup-next', guest_checkout: true },
+    })
+    .select('id')
+    .single()
+  return ins.data?.id ?? null
+}
+
+/** Same rule as the WP import: orders_count = non-trash shop orders; total_spent = paid (processing/completed/refunded) minus refunds. */
+async function refreshCustomerTotals(db: ReturnType<typeof admin>, customerId: number) {
+  const { data: rows } = await db.from('orders').select('id,status,type,total').eq('customer_id', customerId).neq('status', 'trash')
+  const own = (rows || []).filter((o: any) => (o.type || 'shop_order') === 'shop_order')
+  const paid = own.filter((o: any) => ['processing', 'completed', 'refunded'].includes(o.status))
+  let spent = paid.reduce((s: number, o: any) => s + Number(o.total || 0), 0)
+  if (paid.length) {
+    const { data: refunds } = await db.from('orders').select('total,status').eq('type', 'shop_order_refund').in('parent_id', paid.map((o: any) => o.id))
+    spent += (refunds || []).filter((r: any) => r.status !== 'trash').reduce((s: number, r: any) => s + Number(r.total || 0), 0)
+  }
+  await db.from('customers').update({ orders_count: own.length, total_spent: Math.round(spent * 100) / 100, date_modified: new Date().toISOString() }).eq('id', customerId)
 }

@@ -127,3 +127,8 @@
    wrapper sits flush under the spacer with its 24px gap below. inline.css loads after Blocksy here,
    which flipped the gap to the top (home grid 24px too low). Restore the old cascade for this wrapper. */
 .is-layout-constrained > .woocommerce[class*="columns-"] { margin-block-start: 0; margin-block-end: var(--theme-content-spacing); }
+/* Same cascade issue inside the product description tab (Blocksy entry-content): on the old site Blocksy's flow rules
+   (paragraph margin-bottom, heading margin-bottom .3em+10px) win over global-styles' margin-block-start.
+   Re-assert them for the WooCommerce tab panels only, keeping Blocksy's (0,1,0) specificity. */
+:is(.is-layout-flow,.is-layout-constrained):where(.woocommerce-Tabs-panel, .woocommerce-Tabs-panel *)>*:where(:not(h1,h2,h3,h4,h5,h6)) { margin-block-start: 0; margin-block-end: var(--theme-content-spacing); }
+:is(.is-layout-flow,.is-layout-constrained):where(.woocommerce-Tabs-panel, .woocommerce-Tabs-panel *) :where(h1,h2,h3,h4,h5,h6) { margin-block-end: calc(var(--has-theme-content-spacing, 1)*(.3em + 10px)); }

@@ -142,7 +142,7 @@ const SHORTCODES: Record<string, string> = {
   register_form: `<form class="dayinup-register register" method="post" novalidate><p><label for="reg_username">使用者名稱</label><input type="text" name="user_login" id="reg_username" class="input" autocomplete="username" required></p><p><label for="reg_email">電子郵件</label><input type="email" name="user_email" id="reg_email" class="input" autocomplete="email" required></p><p class="woocommerce-privacy-policy-text">註冊後我們會寄送登入連結到您的信箱。</p><p><button type="submit" class="wp-element-button">註冊</button></p><p>已經有帳號了？<a href="/my-account/">登入</a></p></form>`,
   rcp_profile_editor: '<p>請先<a href="/my-account/">登入</a>，再到「<a href="/my-account/edit-account/">帳號詳細資料</a>」編輯個人資料。</p>',
   subscription_details: '<p>您的會員與訂單資訊請至「<a href="/my-account/">我的帳號</a>」查看。</p>',
-  rcp_update_card: '<p>本站目前未串接線上刷卡，無需更新付款卡片；如需協助請<a href="/contact/">聯絡我們</a>。</p>',
+  rcp_update_card: '<p>本站目前未串接線上刷卡，無需更新付款卡片；如需協助請來信 <a href="mailto:dayin.team@gmail.com">dayin.team@gmail.com</a>。</p>',
 }
 
 /** Strip shortcodes the old site rendered via plugins we replaced with native features. */
@@ -491,7 +491,7 @@ async function productView(slug: string, path: string): Promise<View | null> {
     ? `<section class="related products is-width-constrained"> <h2 class="ct-module-title">相關商品</h2> <ul class="products columns-4" data-products="type-2"> ${related.map((r, i) => productCard(r, relTerms.get(r.id) || [], media.get(r.featured_media_id), i, 4)).join(' ')} </ul> </section>`
     : ''
   const html = mainWrap(
-    `<div class="ct-container-full" data-content="normal"  data-vertical-spacing="top:bottom"><article class="post-${p.id}"> <div class="woocommerce-notices-wrapper"></div><div id="product-${p.id}" class="${productClasses(p, terms, ['first'])} ct-default-gallery"> <div class="product-entry-wrapper is-width-constrained">${gallery} <div class="summary entry-summary entry-summary-items"> <h1 class="product_title entry-title">${esc(name)}</h1><span class="ct-product-divider" data-id="i25rVXYM0yQzQlHp0EsFJ"></span><p class="price">${priceHtml(p)}</p> <span class="ct-product-divider" data-id="divider_1"></span>${atc}${short} </div> </div> ${tabs} ${relHtml} </div> </article> </div>`,
+    `<div class="ct-container-full" data-content="normal"  data-vertical-spacing="top:bottom"><article class="post-${p.id}"> <div class="woocommerce-notices-wrapper"></div><div id="product-${p.id}" class="${productClasses(p, terms, ['first'])} ct-default-gallery"> <div class="product-entry-wrapper is-width-constrained">${gallery} <div class="summary entry-summary entry-summary-items"> <h1 class="product_title entry-title">${esc(name)}</h1><span class="ct-product-divider" data-id="i25rVXYM0yQzQlHp0EsFJ"></span><p class="price">${priceHtml(p)}</p> <span class="ct-product-divider" data-id="divider_1"></span>${atc}${short} </div> </div> ${tabs} </div> ${relHtml} </article> </div>`,
   )
   const floating = `<div class="ct-floating-bar" > <div class="ct-container"> <section class="ct-floating-bar-content"> <div class="ct-media-container">${img(media.get(p.featured_media_id), { cls: '', ratio: '1/1', alt: name, title: true }).replace(/width="\d+" height="\d+"/, 'width="100" height="100"')}</div> <div class="ct-floating-bar-item-title"> <div class="product-title">${esc(name)}</div> <p class="price">${priceHtml(p)}</p> </div> </section> <section class="ct-floating-bar-actions"> ${addToCartLoop(p).replace('class="button', p.type === 'variable' ? 'class="button' : 'class="button').replace(/class="button product_type_variable"/, 'class="button product_type_variable add_to_cart_button"')} </section> </div> </div>`
   return {
@@ -614,9 +614,6 @@ export const resolveView = cache(async (segments: string[], sp: Record<string, s
       })
     }
   }
-  if (path === '/blog/') {
-    return postArchive({ kind: 'blog', path, page, bodyCls: 'blog', prefix: 'blog', seo: { title: '文章 - DayinUP', robots: 'follow, index', canonical: abs('/blog/'), ogType: 'article', ogTitle: '文章 - DayinUP', ogUrl: abs('/blog/'), ogImage: PAGES.default_og_image } })
-  }
   if (path === '/cart/') {
     const pg = await getPostById(7)
     return {
@@ -649,13 +646,7 @@ export const resolveView = cache(async (segments: string[], sp: Record<string, s
       client: { component: 'account', props: { sub } },
     }
   }
-  if (path === '/contact/') {
-    return {
-      kind: 'contact', status: 200, css: [],
-      ...shellPage(path, 0, 'wp-singular page-template-default page', contactHtml()),
-      seo: { title: '聯絡我們 - DayinUP', description: 'DayinUP 一站式外包接案資源平台聯絡方式', robots: 'follow, index', canonical: abs('/contact/'), ogType: 'article', ogTitle: '聯絡我們 - DayinUP', ogUrl: abs('/contact/'), ogImage: PAGES.default_og_image },
-    }
-  }
+  // /contact/ and /blog/ are 404 on the old site (no such pages) → fall through to notFoundView like WordPress
   // pages & posts by path
   if (page === 1) {
     const post = await getPostByPath(path)
@@ -711,9 +702,6 @@ function emptyCartHtml(content: string): string {
   return j > 0 ? content.slice(i, j + '</ul></div>'.length) + '</div>' : ''
 }
 
-function contactHtml(): string {
-  return `<div class="dayinup-contact"><h1 class="page-title">聯絡我們</h1><p>有任何合作或活動問題，歡迎留下訊息，我們會盡快回覆。也可以來信 <a href="mailto:dayin.team@gmail.com">dayin.team@gmail.com</a> 或加入 <a href="https://line.me/R/ti/p/@730wkluo" target="_blank" rel="noopener">LINE 官方帳號</a>。</p><form class="dayinup-form" data-dayinup-form="contact" action="/api/forms/contact/" method="post"><p><label for="c-name">姓名 *</label><input id="c-name" name="name" type="text" required></p><p><label for="c-email">電子郵件 *</label><input id="c-email" name="email" type="email" required></p><p><label for="c-subject">主旨</label><input id="c-subject" name="subject" type="text"></p><p><label for="c-message">訊息 *</label><textarea id="c-message" name="message" rows="6" required></textarea></p><p><button type="submit" class="wp-element-button">送出</button></p></form></div>`
-}
 
 /* ---------------------------------------------------------------- admin preview (drafts / scheduled / private) */
 export async function previewView(kind: string, id: number): Promise<View | null> {

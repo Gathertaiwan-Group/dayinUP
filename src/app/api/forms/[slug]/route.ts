@@ -6,13 +6,9 @@ import { currentUser, customerFor } from '@/lib/auth'
 export const dynamic = 'force-dynamic'
 
 const SECRET_FIELDS = /pass|pwd|token|nonce|card|cvc|cvv/i
-const FORM_DEFAULTS: Record<string, { name: string; source: string; form_type: string }> = {
-  contact: { name: '聯絡我們', source: 'native', form_type: 'contact' },
-}
 const MESSAGES: Record<string, string> = {
   commentform: '感謝您的留言，留言將在審核後顯示。',
   'elementor-form': '已成功訂閱，感謝您！',
-  contact: '訊息已送出，我們會盡快與您聯繫。',
 }
 
 /** Stores any front-end form submission into site_dayinup.form_submissions (passwords are never stored). */
@@ -27,11 +23,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
   if (body.website_hp) return NextResponse.json({ ok: true }) // honeypot
   const db = admin()
-  let { data: form } = await db.from('forms').select('id,slug,form_type,fields').eq('slug', slug).eq('status', 'published').maybeSingle()
-  if (!form && FORM_DEFAULTS[slug]) {
-    const ins = await db.from('forms').insert({ slug, ...FORM_DEFAULTS[slug], fields: [], pages: ['/contact/'] }).select('id,slug,form_type,fields').single()
-    form = ins.data
-  }
+  const { data: form } = await db.from('forms').select('id,slug,form_type,fields').eq('slug', slug).eq('status', 'published').maybeSingle()
   if (!form) return NextResponse.json({ ok: false, error: '找不到表單。' }, { status: 404 })
 
   const data: Record<string, any> = {}
@@ -41,7 +33,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
   // required-field validation from the stored form definition
   const missing = (form.fields || []).filter((f: any) => f.required && f.name && !String(body[f.name] ?? '').trim()).map((f: any) => (f.label || f.name).replace(/\s*\*\s*$/, ''))
-  if (slug === 'contact') for (const k of ['name', 'email', 'message']) if (!String(body[k] || '').trim()) missing.push(k)
   if (missing.length) return NextResponse.json({ ok: false, error: `請填寫必填欄位：${missing.join('、')}` }, { status: 400 })
   const email = String(body.email || body['form_fields[email]'] || body.user_email || '')
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ ok: false, error: '請輸入有效的電子郵件地址。' }, { status: 400 })
