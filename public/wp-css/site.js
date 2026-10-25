@@ -357,7 +357,7 @@
       btnWrap.classList.toggle('woocommerce-variation-add-to-cart-disabled', !ok); btnWrap.classList.toggle('woocommerce-variation-add-to-cart-enabled', ok)
       var q = $('input.qty', form); if (q) { q.max = v.max_qty || '' }
       reset.style.visibility = 'visible'
-      if (v.image && v.image.src) { var im = $('.woocommerce-product-gallery img'); if (im) im.src = v.image.src }
+      if (v.image && v.image.src) { var im = $('.woocommerce-product-gallery img'); if (im) { if (v.image.srcset) im.srcset = v.image.srcset; else im.removeAttribute('srcset'); im.src = v.image.src } }
     }
     radios.forEach(function (r) { r.addEventListener('change', function () { sel.value = r.value; paint(); update() }) })
     $$('.tag-list label', form).forEach(function (l) { l.addEventListener('click', function () { var r = d.getElementById(l.getAttribute('for')); if (r) { r.checked = true; sel.value = r.value; paint(); update() } }) })

@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 /**
@@ -62,7 +62,31 @@ function norm(p: string): string {
 
 const QUERY_KEYS = ['p', 'page_id', 'attachment_id', 'product', 'post_type']
 
-/** /admin: separate layout (root layout checks x-dayinup-admin) + keep the Supabase Auth session cookie fresh. */
+/** query parameters that never change the rendered page (tracking): such URLs are still served from the ISR cache */
+const IGNORED_QUERY = /^(utm_\w+|fbclid|gclid|gbraid|wbraid|dclid|msclkid|yclid|_gl|_ga|mc_cid|mc_eid|srsltid|igshid|ref)$/i
+
+/**
+ * Public pages: without a meaningful query string they are served by the ISR route (src/app/(site)/[[...slug]]);
+ * ?s= / ?orderby= / ?add-to-cart= … are rewritten to the dynamic twin under /dyn/ (never linked or reachable directly).
+ */
+function publicPage(req: NextRequest) {
+  const keys = [...req.nextUrl.searchParams.keys()].filter((k) => !IGNORED_QUERY.test(k))
+  if (!keys.length) return NextResponse.next()
+  const to = req.nextUrl.clone()
+  to.pathname = '/dyn' + req.nextUrl.pathname
+  return NextResponse.rewrite(to)
+}
+
+/** scheduled posts/products: ping /api/publish-due at most once a minute per instance (pages are static now) */
+let lastDuePing = 0
+function pingPublishDue(req: NextRequest, event: NextFetchEvent) {
+  if (Date.now() - lastDuePing < 60_000) return
+  lastDuePing = Date.now()
+  const url = new URL('/api/publish-due/', req.url)
+  event.waitUntil(fetch(url, { cache: 'no-store', headers: { 'User-Agent': 'dayinup-proxy' } }).then(() => undefined, () => undefined))
+}
+
+/** /admin: own root layout (src/app/admin/layout.tsx) + keep the Supabase Auth session cookie fresh. */
 async function adminRequest(req: NextRequest) {
   const headers = new Headers(req.headers)
   headers.set('x-dayinup-admin', '1')
@@ -91,7 +115,7 @@ async function adminRequest(req: NextRequest) {
   return res
 }
 
-export async function proxy(req: NextRequest) {
+export async function proxy(req: NextRequest, event: NextFetchEvent) {
   const { pathname, searchParams } = req.nextUrl
   // trailingSlash redirect lives here (next.config skipTrailingSlashRedirect) so /api/* — outside the matcher —
   // answers on both /api/mcp and /api/mcp/ (MCP clients POST without following a 308).
@@ -102,6 +126,8 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(to.toString(), 308)
   }
   if (pathname === '/admin/' || pathname.startsWith('/admin/')) return adminRequest(req)
+  // the dynamic twin of the public route is internal (only reached through publicPage's rewrite)
+  if (pathname === '/dyn/' || pathname.startsWith('/dyn/')) return NextResponse.rewrite(new URL('/__not-found__/', req.url), { status: 404 })
   if (pathname.startsWith('/admin-preview/')) {
     const res = NextResponse.next()
     res.headers.set('Cache-Control', 'private, no-store')
@@ -123,7 +149,8 @@ export async function proxy(req: NextRequest) {
         const hit = m.redirects.get(norm(`/?${k}=${v}`))
         if (hit) return NextResponse.redirect(new URL(hit.target, req.url), hit.code as 301)
       }
-      return NextResponse.next()
+      pingPublishDue(req, event)
+      return publicPage(req)
     }
     // attachment pages and other legacy single-segment paths
     const m = await maps()
@@ -133,12 +160,8 @@ export async function proxy(req: NextRequest) {
   } catch {
     /* never block a page because the redirect table is unreachable */
   }
-  if (req.headers.has('x-dayinup-admin')) {
-    const headers = new Headers(req.headers)
-    headers.delete('x-dayinup-admin')
-    return NextResponse.next({ request: { headers } })
-  }
-  return NextResponse.next()
+  pingPublishDue(req, event)
+  return publicPage(req)
 }
 
 export const config = {

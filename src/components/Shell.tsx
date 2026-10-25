@@ -1,13 +1,23 @@
 import { buildChrome } from '@/lib/shell'
 import type { View } from '@/lib/views'
 import ClientMount from './ClientMount'
+import { getMediaIndex, responsiveHtml } from '@/lib/images'
 
 function iso(d: string) {
   return new Date(d).toISOString().replace(/\.\d{3}Z$/, '+00:00')
 }
 
 export default async function Shell({ view, path }: { view: View; path: string }) {
-  const chrome = await buildChrome(path, view.active || [])
+  const [raw, index] = await Promise.all([buildChrome(path, view.active || []), getMediaIndex()])
+  // srcset / sizes / lazy for every bucket image: theme chrome (logo), cards and content HTML
+  const chrome = {
+    drawerStart: responsiveHtml(raw.drawerStart, index),
+    header: responsiveHtml(raw.header, index),
+    footer: responsiveHtml(raw.footer, index),
+    drawerEnd: responsiveHtml(raw.drawerEnd, index),
+  }
+  const html = responsiveHtml(view.html, index, { priorityFirst: true })
+  const floatingBar = view.floatingBar ? responsiveHtml(view.floatingBar, index) : ''
   const ld = view.seo.schema ? JSON.stringify(view.seo.schema).replace(/</g, '\\u003c') : null
   return (
     <>
@@ -32,7 +42,7 @@ export default async function Shell({ view, path }: { view: View; path: string }
         data-view={view.kind}
       >
         <a className="skip-link screen-reader-text" href="#main">跳至主要內容</a>
-        <div dangerouslySetInnerHTML={{ __html: view.floatingBar ? chrome.drawerStart.replace(/<\/div>\s*$/, view.floatingBar + '</div>').replace('data-location="start"', 'data-location="start" data-floating-bar="no"') : chrome.drawerStart }} style={{ display: 'contents' }} />
+        <div dangerouslySetInnerHTML={{ __html: floatingBar ? chrome.drawerStart.replace(/<\/div>\s*$/, floatingBar + '</div>').replace('data-location="start"', 'data-location="start" data-floating-bar="no"') : chrome.drawerStart }} style={{ display: 'contents' }} />
         <div id="main-container">
           <div dangerouslySetInnerHTML={{ __html: chrome.header }} style={{ display: 'contents' }} />
           {view.client ? (
@@ -46,7 +56,7 @@ export default async function Shell({ view, path }: { view: View; path: string }
               </div>
             </main>
           ) : (
-            <div dangerouslySetInnerHTML={{ __html: view.html }} style={{ display: 'contents' }} />
+            <div dangerouslySetInnerHTML={{ __html: html }} style={{ display: 'contents' }} />
           )}
           <div dangerouslySetInnerHTML={{ __html: chrome.footer }} style={{ display: 'contents' }} />
         </div>

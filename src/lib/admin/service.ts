@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import "server-only";
 import { createHash } from "node:crypto";
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import sharp from "sharp";
 import { serviceDb } from "@/lib/supabase";
 import { entityDef, ORDER_STATUS_LABEL, type EntityDef } from "./entities";
@@ -19,13 +19,16 @@ export type Actor = {
 export class AdminError extends Error {}
 
 export const BUCKET = "site-dayinup";
+const VARIANT_WIDTHS = [480, 960, 1440];
+const IMMUTABLE = "public, max-age=31536000, immutable"; // object keys never change content
 type Row = Record<string, any>;
 
 // ---------- 共用 ----------
 
 export function refreshSite() {
   try {
-    revalidateTag("site", { expire: 0 });
+    revalidateTag("site", { expire: 0 }); // cached Supabase reads (src/lib/supabase.ts db())
+    revalidatePath("/", "layout"); // every ISR page
   } catch {
     // 不在 Next 請求環境（例如腳本）時略過
   }
@@ -758,11 +761,30 @@ export async function uploadMedia(
     key = `uploads/${ym}/${base}${i ? `-${i}` : ""}${outExt}`;
     const { data: taken } = await db.from("media").select("id").eq("storage_path", key).limit(1);
     if (taken?.length) continue;
-    const { error } = await db.storage.from(BUCKET).upload(key, out, { contentType: outMime, upsert: false, cacheControl: "31536000" });
+    const { error } = await db.storage.from(BUCKET).upload(key, out, { contentType: outMime, upsert: false, headers: { "cache-control": IMMUTABLE } });
     if (!error) uploaded = true;
     else if (!/exist|duplicate/i.test(error.message)) throw new AdminError(`上傳失敗：${error.message}`);
   }
   if (!uploaded) throw new AdminError("無法產生不重複的檔名");
+  // responsive variants (480/960/1440w WebP q75, never upscaled) for srcset — see src/lib/images.ts
+  const variants: { w: number; h: number; path: string; bytes: number }[] = [];
+  if (RASTER.test(mime) && width) {
+    for (const w of VARIANT_WIDTHS) {
+      if (w >= width) break;
+      try {
+        const { data: vb, info: vi } = await sharp(input.bytes, { failOn: "none" })
+          .rotate()
+          .resize({ width: w, withoutEnlargement: true })
+          .webp({ quality: 75 })
+          .toBuffer({ resolveWithObject: true });
+        const vkey = `v/${w}/${key}`;
+        const { error: ve } = await db.storage.from(BUCKET).upload(vkey, vb, { contentType: "image/webp", upsert: true, headers: { "cache-control": IMMUTABLE } });
+        if (!ve) variants.push({ w: vi.width, h: vi.height, path: vkey, bytes: vb.length });
+      } catch {
+        // a missing variant only means a larger download; the original is already stored
+      }
+    }
+  }
   const publicUrl = db.storage.from(BUCKET).getPublicUrl(key).data.publicUrl;
   const now = new Date().toISOString();
   const { data: row, error } = await db
@@ -785,12 +807,13 @@ export async function uploadMedia(
       date: now,
       modified: now,
       sha1,
+      variants,
       meta: { source: "admin_upload", original_filesize: input.bytes.length },
     })
     .select("*")
     .single();
   if (error) {
-    await db.storage.from(BUCKET).remove([key]);
+    await db.storage.from(BUCKET).remove([key, ...variants.map((v) => v.path)]);
     throw new AdminError(`寫入媒體庫失敗：${error.message}`);
   }
   await audit(actor, "upload", "media", row.id, null, { storage_path: key, mime_type: outMime, bytes: out.length, original_bytes: input.bytes.length });
@@ -807,7 +830,8 @@ export async function deleteMedia(id: number, actor: Actor) {
   fail("刪除媒體失敗", error);
   let removedFile = false;
   if (before.storage_path && !shared?.length) {
-    const { error: e2 } = await db.storage.from(BUCKET).remove([before.storage_path]);
+    const variantPaths = Array.isArray(before.variants) ? before.variants.map((v: Row) => String(v.path)).filter(Boolean) : [];
+    const { error: e2 } = await db.storage.from(BUCKET).remove([before.storage_path, ...variantPaths]);
     removedFile = !e2;
   }
   await audit(actor, "delete", "media", id, before, { removed_file: removedFile });

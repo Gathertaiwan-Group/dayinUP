@@ -8,6 +8,7 @@ import {
   listPosts, listProducts, getProductTerms, getProductBySlug, getProductsByIds, PER_PAGE, type Row,
 } from './data'
 import { db, admin, SITE_URL } from './supabase'
+import { srcsetOf } from './images'
 import {
   esc, decodeEntities, stripTags, priceHtml, money, fmt, img, productCard, postCard, postClasses, productClasses,
   pagination, breadcrumbs, badge, addToCartLoop, SNIPPETS, excerptHtml,
@@ -460,7 +461,7 @@ async function productView(slug: string, path: string): Promise<View | null> {
         price_html: `<span class="price">${onSale ? `<span class="sale-price">${priceSale(v.regular_price, v.sale_price)}</span>` : money(v.price ?? v.regular_price)}</span>`,
         availability_html: v.stock_status === 'outofstock' ? '<p class="stock out-of-stock">缺貨</p>' : '',
         discount_html: r ? discountLine(r, v) : '',
-        image: v.image_media_id && media.get(v.image_media_id) ? { src: media.get(v.image_media_id)!.public_url } : null,
+        image: v.image_media_id && media.get(v.image_media_id) ? { src: media.get(v.image_media_id)!.public_url, srcset: srcsetOf(media.get(v.image_media_id)!.public_url, { w: media.get(v.image_media_id)!.width, h: media.get(v.image_media_id)!.height, variants: media.get(v.image_media_id)!.variants || [] }) } : null,
       }
     })
     const available = (o: string) => p.variations.some((v: Row) => v.attributes?.[attr.name] === o && v.stock_status !== 'outofstock' && v.is_purchasable !== false)

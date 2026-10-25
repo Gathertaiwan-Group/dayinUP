@@ -12,13 +12,26 @@ function env(name: string): string {
 let anon: SupabaseClient<any, any, any> | null = null
 let service: SupabaseClient<any, any, any> | null = null
 
-/** Read-only client (anon key, RLS: published content only). */
+/** Tag on every cached public read; refreshSite() (admin / MCP writes) expires it together with the ISR pages. */
+export const CACHE_TAG = 'site'
+export const REVALIDATE_SECONDS = 300
+
+/**
+ * Read-only client (anon key, RLS: published content only) for rendering public pages.
+ * Reads go through the Next data cache (5 min, tag 'site') so page renders do not hit Supabase on every request.
+ */
 export function db() {
   if (!anon) {
     anon = createClient(env('SUPABASE_URL'), env('SUPABASE_ANON_KEY'), {
       db: { schema: SCHEMA },
       auth: { persistSession: false, autoRefreshToken: false },
-      global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+      global: {
+        fetch: (input, init) => {
+          const method = (init?.method || 'GET').toUpperCase()
+          if (method !== 'GET' && method !== 'HEAD') return fetch(input, { ...init, cache: 'no-store' })
+          return fetch(input, { ...init, next: { revalidate: REVALIDATE_SECONDS, tags: [CACHE_TAG] } })
+        },
+      },
     })
   }
   return anon

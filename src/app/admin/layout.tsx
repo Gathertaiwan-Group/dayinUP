@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "../globals.css";
 import "./admin.css";
 
 export const dynamic = "force-dynamic";
@@ -9,5 +10,11 @@ export const metadata: Metadata = {
 };
 
 export default function AdminRoot({ children }: { children: React.ReactNode }) {
-  return <div className="adm-body">{children}</div>;
+  return (
+    <html lang="zh-TW" suppressHydrationWarning>
+      <body>
+        <div className="adm-body">{children}</div>
+      </body>
+    </html>
+  );
 }

@@ -43,7 +43,7 @@ export async function getMediaMap(ids: (number | null | undefined)[]): Promise<M
   for (let i = 0; i < uniq.length; i += 200) {
     const { data, error } = await db()
       .from('media')
-      .select('id,title,alt_text,caption_html,mime_type,public_url,width,height,meta')
+      .select('id,title,alt_text,caption_html,mime_type,public_url,width,height,meta,variants')
       .in('id', uniq.slice(i, i + 200))
     if (error) throw error
     for (const r of data || []) m.set(r.id, r)

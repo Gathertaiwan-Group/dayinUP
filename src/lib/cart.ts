@@ -2,6 +2,7 @@
 import 'server-only'
 import { cookies } from 'next/headers'
 import { admin } from './supabase'
+import { variantUrl } from './images'
 
 export const CART_COOKIE = 'dayinup_cart'
 
@@ -92,8 +93,9 @@ export async function summarize(cart: any | null): Promise<CartSummary> {
   const pm = new Map((prods.data || []).map((p: any) => [p.id, p]))
   const vm = new Map((vars.data || []).map((v: any) => [v.id, v]))
   const mids = [...(prods.data || []).map((p: any) => p.featured_media_id), ...(vars.data || []).map((v: any) => v.image_media_id)].filter(Boolean)
-  const media = mids.length ? await db.from('media').select('id,public_url').in('id', mids) : { data: [] as any[] }
-  const mm = new Map((media.data || []).map((m: any) => [m.id, m.public_url]))
+  const media = mids.length ? await db.from('media').select('id,public_url,width,height,variants').in('id', mids) : { data: [] as any[] }
+  // cart / checkout thumbnails are ≤120px: serve the 480w variant instead of the 2000px original
+  const mm = new Map((media.data || []).map((m: any) => [m.id, variantUrl(m.public_url, { w: m.width, h: m.height, variants: m.variants || [] }, 480)]))
   for (const r of rows || []) {
     const p: any = pm.get(r.product_id)
     if (!p || p.status !== 'publish') continue

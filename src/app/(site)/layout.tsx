@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import Script from 'next/script'
-import { headers } from 'next/headers'
 import { getSettings } from '@/lib/data'
 import pagesJson from '@/generated/pages.json'
-import './globals.css'
+import '../globals.css'
 
 const GLOBAL_CSS = (pagesJson as { global_css: string[] }).global_css
 const SITE_URL = (process.env.SITE_URL || 'https://dayinup.com').replace(/\/$/, '')
@@ -37,14 +36,7 @@ export const viewport: Viewport = {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // /admin uses its own layout and styles (flag set by src/proxy.ts)
-  if ((await headers()).get('x-dayinup-admin')) {
-    return (
-      <html lang="zh-TW" suppressHydrationWarning>
-        <body>{children}</body>
-      </html>
-    )
-  }
+  // /admin has its own root layout (src/app/admin/layout.tsx); nothing here reads headers/cookies, so public pages stay static (ISR)
   const t = await trackingCodes()
   const gtag = ID.test(t.gtag_id || '') ? t.gtag_id : ''
   const amp = ID.test(t.amplitude_key || '') ? t.amplitude_key : ''
