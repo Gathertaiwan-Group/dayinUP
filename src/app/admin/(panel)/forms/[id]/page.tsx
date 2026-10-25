@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { serviceDb } from "@/lib/supabase";
 import { fmtDate, qs } from "@/lib/admin/format";
@@ -6,6 +7,7 @@ import { Badge, Flash, Pager } from "@/components/admin/Fields";
 import { submissionStatusAction } from "../../../actions";
 
 export default async function FormSubmissions({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { id } = await params;
   const sp = await searchParams;
   const status = sp1(sp, "status");

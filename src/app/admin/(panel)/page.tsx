@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { serviceDb } from "@/lib/supabase";
 import { countOf } from "@/lib/admin/loaders";
 import { ORDER_STATUS_LABEL } from "@/lib/admin/entities";
@@ -5,6 +6,7 @@ import { fmtDate, fmtMoney } from "@/lib/admin/format";
 import { Badge } from "@/components/admin/Fields";
 
 export default async function Dashboard() {
+  await requireAdmin();
   const db = serviceDb();
   const [products, drafts, pages, posts, orders, pending, processing, customers, coupons, media, subs, redirects] = await Promise.all([
     countOf("products", (q) => q.eq("status", "publish")),

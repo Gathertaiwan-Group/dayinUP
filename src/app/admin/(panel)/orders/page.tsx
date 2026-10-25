@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { listRecords } from "@/lib/admin/service";
 import { ORDER_STATUS_LABEL } from "@/lib/admin/entities";
 import { fmtDate, fmtMoney, qs } from "@/lib/admin/format";
@@ -5,6 +6,7 @@ import { countOf, sp1, type SP } from "@/lib/admin/loaders";
 import { Badge, Flash, Pager } from "@/components/admin/Fields";
 
 export default async function OrderList({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const status = sp1(sp, "status");
   const q = sp1(sp, "q");

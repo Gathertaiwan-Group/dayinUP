@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { getOrderFull } from "@/lib/admin/service";
 import { ENTITIES, ORDER_STATUS_LABEL } from "@/lib/admin/entities";
@@ -21,6 +22,7 @@ const ADDRESS_KEYS: [string, string][] = [
 ];
 
 export default async function OrderView({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { id } = await params;
   const sp = await searchParams;
   const o = await getOrderFull(Number(id));

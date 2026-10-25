@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { ENTITIES } from "@/lib/admin/entities";
 import { getRecord } from "@/lib/admin/service";
@@ -9,6 +10,7 @@ import { ConfirmButton } from "@/components/admin/Confirm";
 import { deleteRecordAction, saveRecordAction } from "../../../../actions";
 
 export default async function EntityEdit({ params, searchParams }: { params: Promise<{ entity: string; id: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { entity, id: rawId } = await params;
   const def = ENTITIES[entity];
   if (!def || ["posts", "products", "audit_log"].includes(entity)) notFound();

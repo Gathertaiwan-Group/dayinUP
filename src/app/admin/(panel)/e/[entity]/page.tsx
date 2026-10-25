@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { ENTITIES } from "@/lib/admin/entities";
 import { listRecords } from "@/lib/admin/service";
@@ -22,6 +23,7 @@ function cell(col: string, v: unknown) {
 }
 
 export default async function EntityList({ params, searchParams }: { params: Promise<{ entity: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { entity } = await params;
   const def = ENTITIES[entity];
   if (!def || HIDDEN.has(entity)) notFound();

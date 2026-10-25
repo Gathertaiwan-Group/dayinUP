@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { listRecords } from "@/lib/admin/service";
 import { fmtBytes, qs } from "@/lib/admin/format";
 import { sp1, type SP } from "@/lib/admin/loaders";
@@ -5,6 +6,7 @@ import { Flash, Pager } from "@/components/admin/Fields";
 import { uploadMediaAction } from "../../actions";
 
 export default async function MediaLibrary({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const q = sp1(sp, "q");
   const type = sp1(sp, "type");

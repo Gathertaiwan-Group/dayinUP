@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { listRecords } from "@/lib/admin/service";
 import { POST_STATUS_LABEL } from "@/lib/admin/entities";
 import { decodeSlugSafe, fmtDate, qs } from "@/lib/admin/format";
@@ -9,6 +10,7 @@ import { deleteRecordAction, restoreAction } from "../../actions";
 const TYPE_LABEL: Record<string, string> = { post: "文章", page: "頁面", ct_content_block: "內容區塊", wp_block: "可重複使用區塊" };
 
 export default async function ContentList({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const type = TYPE_LABEL[sp1(sp, "type")] ? sp1(sp, "type") : "page";
   const status = sp1(sp, "status");

@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { getSettings } from "@/lib/admin/service";
 import { fmtDate } from "@/lib/admin/format";
 import { mediaMap, type SP } from "@/lib/admin/loaders";
@@ -6,6 +7,7 @@ import { MediaPicker } from "@/components/admin/MediaPicker";
 import { saveSettingsAction } from "../../actions";
 
 export default async function Settings({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const rows = await getSettings();
   const s: Record<string, any> = Object.fromEntries(rows.map((r) => [r.key, r.value]));

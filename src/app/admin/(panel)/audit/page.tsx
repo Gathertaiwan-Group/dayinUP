@@ -1,9 +1,11 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { listRecords } from "@/lib/admin/service";
 import { fmtDate, qs } from "@/lib/admin/format";
 import { sp1, type SP } from "@/lib/admin/loaders";
 import { Pager } from "@/components/admin/Fields";
 
 export default async function Audit({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const base = { entity_type: sp1(sp, "entity_type"), via: sp1(sp, "via"), action: sp1(sp, "action"), q: sp1(sp, "q") };
   const offset = Number(sp1(sp, "offset")) || 0;

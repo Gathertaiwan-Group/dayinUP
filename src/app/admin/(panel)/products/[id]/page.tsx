@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { getProductFull, listRecords } from "@/lib/admin/service";
 import { ENTITIES, POST_STATUS_LABEL, type Field } from "@/lib/admin/entities";
@@ -9,6 +10,7 @@ import { ConfirmButton } from "@/components/admin/Confirm";
 import { deleteRecordAction, saveChildAction, saveProductAction } from "../../../actions";
 
 export default async function ProductEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { id } = await params;
   const sp = await searchParams;
   const isNew = id === "new";

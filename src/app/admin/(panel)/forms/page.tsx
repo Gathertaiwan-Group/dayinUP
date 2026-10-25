@@ -1,8 +1,10 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { serviceDb } from "@/lib/supabase";
 import type { SP } from "@/lib/admin/loaders";
 import { Badge, Flash } from "@/components/admin/Fields";
 
 export default async function Forms({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const db = serviceDb();
   const { data: forms } = await db.from("forms").select("id,name,slug,form_type,status,source,pages").order("id");

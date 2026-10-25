@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { serviceDb } from "@/lib/supabase";
 import { POST_STATUS_LABEL } from "@/lib/admin/entities";
 import { decodeSlugSafe, fmtMoney, qs } from "@/lib/admin/format";
@@ -7,6 +8,7 @@ import { ConfirmButton } from "@/components/admin/Confirm";
 import { deleteRecordAction, restoreAction, saveProductOrderAction } from "../../actions";
 
 export default async function ProductList({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const status = sp1(sp, "status");
   const q = sp1(sp, "q").replace(/[,()*\\%_"]/g, " ").trim();

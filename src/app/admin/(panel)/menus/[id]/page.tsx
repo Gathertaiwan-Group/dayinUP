@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { serviceDb } from "@/lib/supabase";
 import { getRecord } from "@/lib/admin/service";
@@ -9,6 +10,7 @@ import { ConfirmButton } from "@/components/admin/Confirm";
 import { deleteRecordAction, saveMenuItemsAction, saveRecordAction } from "../../../actions";
 
 export default async function MenuEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { id } = await params;
   const sp = await searchParams;
   const menu = await getRecord("menus", Number(id));

@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin/guard";
 import { notFound } from "next/navigation";
 import { serviceDb } from "@/lib/supabase";
 import { getPostFull } from "@/lib/admin/service";
@@ -11,6 +12,7 @@ import { deleteRecordAction, saveContentAction } from "../../../actions";
 const TYPE_LABEL: Record<string, string> = { post: "文章", page: "頁面", ct_content_block: "內容區塊", wp_block: "可重複使用區塊", wp_navigation: "導覽", elementor_library: "Elementor 範本" };
 
 export default async function ContentEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
+  await requireAdmin();
   const { id } = await params;
   const sp = await searchParams;
   const isNew = id === "new";
