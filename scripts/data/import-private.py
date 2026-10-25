@@ -209,7 +209,11 @@ def lookup_customer_id(lid):
     lr = lookup.get(lid)
     if not lr:
         return None
-    return lr['user_id'] if lr['user_id'] else GUEST_BASE + lid
+    cid = lr['user_id'] if lr['user_id'] else GUEST_BASE + lid
+    return guest_alias.get(cid, cid)
+
+
+guest_alias = {}   # guest customers.id -> registered customers.id (same e-mail), filled below
 
 
 customers = {}
@@ -255,6 +259,24 @@ for lid, lr in lookup.items():
         'date_modified': gmt(lr['date_last_active']),
         'meta': {'source': 'wc_customer_lookup', 'wc_customer_lookup_id': lid},
     }
+
+# Same e-mail as a registered WP user → one customer (WooCommerce also treats them as one person):
+# the guest lookup row is folded into the wp_users row (orders re-pointed via guest_alias).
+reg_by_email = {c['email']: cid for cid, c in customers.items() if cid < GUEST_BASE and c['email']}
+for cid in [c for c in customers if c >= GUEST_BASE]:
+    g = customers[cid]
+    rid = reg_by_email.get(g['email'])
+    if not rid:
+        continue
+    r = customers[rid]
+    for k in ('first_name', 'last_name'):
+        r[k] = r[k] or g[k]
+    r['billing'] = r['billing'] or g['billing']
+    r['shipping'] = r['shipping'] or g['shipping']
+    r['meta'] = {**r['meta'], 'merged_guest_ids': r['meta'].get('merged_guest_ids', []) + [cid],
+                 'merged_wc_customer_lookup_ids': r['meta'].get('merged_wc_customer_lookup_ids', []) + [g['meta']['wc_customer_lookup_id']]}
+    guest_alias[cid] = rid
+    del customers[cid]
 
 # ================================================================== orders (dedupe legacy + HPOS by ID)
 hpos = {r['id']: r for r in src['wp_wc_orders']}
@@ -602,9 +624,74 @@ settings = [
 ]
 
 
+# ================================================================== draft pages (not in the public REST export)
+# WP pages with post_status=draft: imported as status=draft with no public path, so they only show up
+# in the admin content list / admin preview (RLS + getPostByPath only serve status=publish).
+OLD_HOST_RE = re.compile(r'https?://(?:www\.)?dayinup\.com(?=[/"\'\s<]|$)/?')
+draft_pages = []
+for p in posts.values():
+    if p['post_type'] != 'page' or p['post_status'] != 'draft' or p['ID'] in db_posts and db_posts[p['ID']]['status'] != 'draft':
+        continue
+    pm = postmeta.get(p['ID'], {})
+    draft_pages.append({
+        'id': p['ID'], 'post_type': 'page', 'slug': urllib.parse.unquote(p['post_name'] or ''), 'path': None,
+        'status': 'draft', 'title': p['post_title'] or '', 'content_html': OLD_HOST_RE.sub('/', p['post_content'] or ''),
+        'excerpt_html': p['post_excerpt'] or '', 'author_id': p['post_author'] or None,
+        'parent_id': p['post_parent'] or None, 'menu_order': p['menu_order'] or 0,
+        'comment_status': p['comment_status'] or 'closed', 'ping_status': p['ping_status'] or 'closed',
+        'template': '' if pm.get('_wp_page_template') in (None, 'default') else pm['_wp_page_template'],
+        'date': gmt(p['post_date_gmt']) or ((p['post_date'] + '+08:00') if p['post_date'] else None),
+        'modified': gmt(p['post_modified_gmt']) or ((p['post_modified'] + '+08:00') if p['post_modified'] else None),
+        'meta': clean({'source': 'wp_posts (draft)', 'elementor': pm.get('_elementor_edit_mode') == 'builder' or None}),
+    })
+
+
+# ================================================================== term counts
+# Use WordPress' stored wp_term_taxonomy.count (= published objects actually assigned). The public
+# Store API reported product_cat "all" = 77 and talk2talk = 2 although no / one product is assigned;
+# the old /product-category/all/ page lists no products ("找不到符合您選擇的商品").
+wp_term_count = {r['term_id']: int(r['count']) for r in src['wp_term_taxonomy']}
+
+
+# ================================================================== stock fields from postmeta
+# The public Store API cannot tell a variation's own stock settings from inherited ones (it reports the
+# parent's managed stock), so stock_status / backorders / manage_stock / stock come from WP postmeta.
+# _manage_stock=no on a variation means it follows the parent product's stock (WooCommerce 'parent').
+def stock_patch(pid):
+    m = postmeta.get(pid, {})
+    if '_stock_status' not in m:
+        return None
+    managed = m.get('_manage_stock') == 'yes'
+    return {'stock_status': m['_stock_status'], 'backorders': m.get('_backorders') or 'no', 'manage_stock': managed,
+            'stock_quantity': int(float(m['_stock'])) if managed and m.get('_stock') not in (None, '') else None}
+
+
+stock_rows = {'products': {i: stock_patch(i) for i in db_products}, 'product_variations': {i: stock_patch(i) for i in db_variations}}
+
+
 # ================================================================== write
 def write():
     print('writing ...')
+    cur_terms = {r['id']: r for r in select_all('terms', 'id,count')}
+    fixed = [i for i in cur_terms if i in wp_term_count and cur_terms[i]['count'] != wp_term_count[i]]
+    for i in fixed:
+        rest('PATCH', 'terms', {'count': wp_term_count[i]}, query=f'?id=eq.{i}')
+    print(f'  terms: count updated on {len(fixed)} rows')
+    for table, rows in stock_rows.items():
+        cur = {r['id']: r for r in select_all(table, 'id,stock_status,backorders,manage_stock,stock_quantity')}
+        changed = 0
+        for i, patch in rows.items():
+            if patch and any(cur[i][k] != v for k, v in patch.items()):
+                rest('PATCH', table, patch, query=f'?id=eq.{i}')
+                changed += 1
+        print(f'  {table}: stock fields updated on {changed} rows')
+    stale_guests = [str(g) for g in guest_alias]
+    if stale_guests:   # rows from an earlier run that are now merged into the registered customer
+        for t in ('orders', 'form_submissions', 'carts'):
+            for g in guest_alias:
+                rest('PATCH', t, {'customer_id': guest_alias[g]}, query=f'?customer_id=eq.{g}')
+        rest('DELETE', 'customers', query=f"?id=in.({','.join(stale_guests)})", prefer='return=minimal')
+    upsert('posts', draft_pages)
     upsert('customers', list(customers.values()))
     parents = [o for o in orders if o['parent_id'] is None]
     upsert('orders', parents)
@@ -671,8 +758,21 @@ def reconcile():
         len(select_all('order_notes', 'id', 'id=lt.1000000')))
     q_c = select_all('customers', 'id,role,orders_count,total_spent', 'id=lt.1000000')
     chk('customers: wp_users', len(src['wp_users']), sum(1 for c in q_c if c['id'] < GUEST_BASE))
-    chk('customers: guest lookup rows', sum(1 for r in lookup.values() if not r['user_id']), sum(1 for c in q_c if c['id'] >= GUEST_BASE))
+    chk('customers: guest lookup rows (minus merged)', sum(1 for r in lookup.values() if not r['user_id']) - len(guest_alias),
+        sum(1 for c in q_c if c['id'] >= GUEST_BASE))
+    src_emails = {lower(u['user_email']) for u in src['wp_users']} | {lower(r['email']) for r in lookup.values()}
+    src_emails.discard(None); src_emails.discard('')
+    chk('customers: rows == distinct source e-mails', len(src_emails), len(q_c))
+    chk('customers: distinct e-mails == rows', len({c['email'] for c in select_all('customers', 'email', 'id=lt.1000000')}), len(q_c))
+    q_stock = {r['id']: r for t in stock_rows for r in select_all(t, 'id,stock_status,backorders,manage_stock,stock_quantity')}
+    chk('stock fields match postmeta', 0, sum(1 for t in stock_rows for i, pt in stock_rows[t].items()
+                                              if pt and any(q_stock[i][k] != v for k, v in pt.items())))
     chk('customers: orders_count sum', sum(c['orders_count'] for c in customers.values()), sum(c['orders_count'] for c in q_c))
+    q_d = select_all('posts', 'id,status,path', 'post_type=eq.page&status=eq.draft')
+    chk('draft pages (status=draft, no public path)', sum(1 for p in posts.values() if p['post_type'] == 'page' and p['post_status'] == 'draft'),
+        sum(1 for r in q_d if r['path'] is None))
+    q_t = select_all('terms', 'id,count')
+    chk('term counts match wp_term_taxonomy', 0, sum(1 for r in q_t if r['id'] in wp_term_count and r['count'] != wp_term_count[r['id']]))
     chk('coupons', sum(1 for p in posts.values() if p['post_type'] == 'shop_coupon'), len(select_all('coupons', 'id', 'id=lt.1000000')))
     chk('blog comments', len(blog_comments), len(select_all('comments', 'id', 'id=lt.1000000')))
     q_s = select_all('form_submissions', 'id,form_id', 'id=lt.1000000')

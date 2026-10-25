@@ -12,10 +12,6 @@
 .single_add_to_cart_button.disabled { opacity: .5; cursor: not-allowed; }
 .single_add_to_cart_button.loading, .ajax_add_to_cart.loading { opacity: .6; pointer-events: none; }
 .dayinup-discount { margin: .5em 0 0; color: var(--theme-palette-color-2); font-size: 14px; }
-.dayinup-qty-discounts { margin: 1em 0; font-size: 14px; }
-.dayinup-qty-discounts summary { cursor: pointer; font-weight: 600; color: var(--theme-palette-color-3); }
-.dayinup-qty-discounts table { margin-top: .5em; width: 100%; }
-.dayinup-qty-discounts th, .dayinup-qty-discounts td { padding: 6px 8px; text-align: left; }
 
 /* Woo ordering select (Blocksy hid the toolbar on the old site — keep it compact and right aligned) */
 
@@ -127,3 +123,7 @@
 /* old /my-account/ content sat inside Elementor container 54c2077d (post-9.css): margin-top 50px (30px <=767px) + e-con-inner padding-top 10px */
 [data-view="account"] main .entry-content { padding-top: 60px; }
 @media (max-width: 767px) { [data-view="account"] main .entry-content { padding-top: 40px; } }
+/* Old site: Blocksy's flow rule (margin-bottom) loads after global-styles, so the [products] shortcode
+   wrapper sits flush under the spacer with its 24px gap below. inline.css loads after Blocksy here,
+   which flipped the gap to the top (home grid 24px too low). Restore the old cascade for this wrapper. */
+.is-layout-constrained > .woocommerce[class*="columns-"] { margin-block-start: 0; margin-block-end: var(--theme-content-spacing); }

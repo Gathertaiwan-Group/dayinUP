@@ -14,7 +14,7 @@ export default async function Dashboard() {
     countOf("orders", (q) => q.eq("type", "shop_order")),
     countOf("orders", (q) => q.eq("status", "pending")),
     countOf("orders", (q) => q.eq("status", "processing")),
-    countOf("customers"),
+    countOf("customers", (q) => q.is("meta->>site_admin", null)),
     countOf("coupons"),
     countOf("media"),
     countOf("form_submissions", (q) => q.eq("status", "unread")),

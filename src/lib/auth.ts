@@ -45,9 +45,12 @@ export async function customerFor(user: { id: string; email?: string | null; ema
       return up.data
     }
   }
+  // Site admins (site_dayinup.admins) get a row so storefront flows work, but it is flagged so it is
+  // never counted as a shop customer.
+  const isAdmin = !!(await db.from('admins').select('user_id').eq('user_id', user.id).limit(1)).data?.length
   const ins = await db
     .from('customers')
-    .insert({ auth_user_id: user.id, email: user.email, username: user.user_metadata?.username || user.email?.split('@')[0], display_name: user.user_metadata?.username || user.email?.split('@')[0], meta: { source: 'dayinup-next' } })
+    .insert({ auth_user_id: user.id, email: user.email, username: user.user_metadata?.username || user.email?.split('@')[0], display_name: user.user_metadata?.username || user.email?.split('@')[0], meta: isAdmin ? { source: 'dayinup-next', site_admin: true } : { source: 'dayinup-next' } })
     .select('*')
     .single()
   if (ins.error) throw ins.error

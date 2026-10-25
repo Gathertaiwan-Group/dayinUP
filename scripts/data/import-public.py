@@ -403,7 +403,10 @@ def main():
                 'price': money(pr.get('price')), 'on_sale': on_sale,
                 'manage_stock': d.get('low_stock_remaining') is not None,
                 'stock_quantity': d.get('low_stock_remaining'),
-                'stock_status': 'outofstock' if ('out-of-stock' in avail or not d.get('is_in_stock')) else 'instock',
+                # provisional: Store API reports the parent's stock for _manage_stock=no variations;
+                # import-private.py overwrites stock fields from wp_postmeta (source of truth)
+                'stock_status': 'outofstock' if ('out-of-stock' in avail or not d.get('is_in_stock')) else (
+                    'onbackorder' if d.get('is_on_backorder') else 'instock'),
                 'is_purchasable': bool(d.get('is_purchasable')),
                 'image_media_id': img if (img in media_ids and img != parent_img) else None,
                 'menu_order': order,

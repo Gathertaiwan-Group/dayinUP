@@ -1,14 +1,43 @@
 // Browser smoke test of interactive features. Usage:
 //   NODE_PATH=~/gather-migrate/_tools/node_modules node scripts/frontend/e2e.js http://localhost:3456 <shotdir>
+// Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the environment so the test order it places
+// is deleted afterwards (order_items / order_notes cascade). Cleanup also runs if a step throws.
 const { chromium } = require('playwright')
 const BASE = process.argv[2]
 const OUT = process.argv[3] || '/tmp'
 const results = []
 const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`) }
+const TEST_EMAIL = 'migration-test@gathertaiwan.com'
+const TEST_MARK = 'DAYINUP-FRONTEND-TEST'
+// Delete every order this script created: new-site ids (>= 1000000, imported WP ids are lower),
+// test billing email, and the marker in the customer note. Never touches imported orders.
+async function cleanupTestOrders() {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) { results.push('FAIL cleanup: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set, test order left behind'); return }
+  const q = `id=gte.1000000&billing_email=eq.${encodeURIComponent(TEST_EMAIL)}&customer_note=like.*${TEST_MARK}*`
+  const r = await fetch(`${url}/rest/v1/orders?${q}`, {
+    method: 'DELETE',
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Profile': 'site_dayinup', Prefer: 'return=representation' },
+  })
+  const rows = r.ok ? await r.json() : []
+  ok('cleanup test orders', r.ok, `deleted ${rows.length} (${rows.map((o) => o.id).join(',')})`)
+  // newsletter test submission (Elementor form stores the field as form_fields[email])
+  const contains = encodeURIComponent(JSON.stringify({ 'form_fields[email]': TEST_EMAIL }))
+  const f = await fetch(`${url}/rest/v1/form_submissions?id=gte.1000000&data=cs.${contains}`, {
+    method: 'DELETE',
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Profile': 'site_dayinup', Prefer: 'return=representation' },
+  })
+  const frows = f.ok ? await f.json() : []
+  ok('cleanup test form submissions', f.ok, `deleted ${frows.length}`)
+}
 ;(async () => {
-  const b = await chromium.launch()
+  const b = await chromium.launch({ channel: 'chrome' })
+  try {
   // ---------- desktop shop flow
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } })
+  // traffic discipline: images are not under test here, so they are not downloaded (E2E_IMAGES=1 to allow)
+  const noImages = (c) => process.env.E2E_IMAGES === '1' ? null : c.route('**/*', (r) => (['image', 'media'].includes(r.request().resourceType()) ? r.abort() : r.continue()))
+  await noImages(ctx)
   const p = await ctx.newPage()
   const errors = []
   p.on('pageerror', (e) => errors.push(String(e)))
@@ -38,13 +67,13 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   await p.waitForSelector('.wc-block-cart-items__row')
   ok('cart shows line', /早鳥票/.test(await p.locator('.wc-block-cart-items').innerText()))
   await p.click('.wc-block-components-quantity-selector__button--plus')
-  await p.waitForTimeout(1200)
+  await p.waitForFunction(() => document.querySelector('.wc-block-components-quantity-selector__input')?.value === '3', null, { timeout: 10000 }).catch(() => {})
   ok('cart qty +1 → 3', (await p.inputValue('.wc-block-components-quantity-selector__input')) === '3')
   await p.screenshot({ path: OUT + '/e2e_cart.png' })
   await p.click('.wc-block-cart__submit-button')
   await p.waitForURL('**/checkout/')
   await p.waitForSelector('#billing-email')
-  await p.fill('#billing-email', 'migration-test@gathertaiwan.com')
+  await p.fill('#billing-email', TEST_EMAIL)
   await p.fill('#billing-last_name', '搬遷')
   await p.fill('#billing-first_name', '測試')
   await p.fill('#billing-address_1', '測試路1號')
@@ -53,7 +82,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   await p.fill('#billing-postcode', '106')
   await p.fill('#billing-phone', '0912345678')
   await p.check('#checkbox-control-note')
-  await p.fill('textarea', 'DAYINUP-FRONTEND-TEST e2e order, safe to delete')
+  await p.fill('textarea', TEST_MARK + ' e2e order, safe to delete')
   await p.screenshot({ path: OUT + '/e2e_checkout.png', fullPage: true })
   await p.click('.wc-block-components-checkout-place-order-button')
   await p.waitForURL('**/order-received/**', { timeout: 20000 })
@@ -95,6 +124,7 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   } else ok('newsletter form present', false)
   // ---------- mobile: drawer menu
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  await noImages(m)
   const mp = await m.newPage()
   await mp.goto(BASE + '/', { waitUntil: 'networkidle' })
   await mp.tap('[data-device="mobile"] .ct-header-trigger')
@@ -105,6 +135,11 @@ const ok = (name, cond, extra = '') => { results.push(`${cond ? 'PASS' : 'FAIL'}
   ok('mobile submenu expands', await mp.locator('#offcanvas li.dropdown-active .sub-menu').isVisible())
   await mp.screenshot({ path: OUT + '/e2e_mobile_menu.png' })
   ok('no JS page errors', errors.length === 0, errors.join(' | ').slice(0, 300))
-  await b.close()
-  console.log(results.join('\n'))
+  } catch (e) {
+    results.push('FAIL exception ' + String(e).slice(0, 300))
+  } finally {
+    await cleanupTestOrders()
+    await b.close()
+    console.log(results.join('\n'))
+  }
 })()

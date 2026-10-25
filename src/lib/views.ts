@@ -480,7 +480,6 @@ async function productView(slug: string, path: string): Promise<View | null> {
   }
 
   const short = p.short_description_html ? `<span class="ct-product-divider" data-id="STz1CliKp__Fs5TUNSf3-"></span><div class="woocommerce-product-details__short-description"> ${mapStk(p.id, p.short_description_html)} </div>` : ''
-  const qtyDiscount = p.discount_rules.length ? quantityDiscountTable(p) : ''
   const attrsTable = p.attributes.filter((a: Row) => a.is_visible).length
     ? `<div class="woocommerce-Tabs-panel woocommerce-Tabs-panel--additional_information panel entry-content wc-tab is-layout-constrained" id="tab-additional_information" role="tabpanel" aria-labelledby="tab-title-additional_information" style="display:none"> <table class="woocommerce-product-attributes shop_attributes" aria-label="商品詳細資料">${p.attributes
         .filter((a: Row) => a.is_visible)
@@ -492,7 +491,7 @@ async function productView(slug: string, path: string): Promise<View | null> {
     ? `<section class="related products is-width-constrained"> <h2 class="ct-module-title">相關商品</h2> <ul class="products columns-4" data-products="type-2"> ${related.map((r, i) => productCard(r, relTerms.get(r.id) || [], media.get(r.featured_media_id), i, 4)).join(' ')} </ul> </section>`
     : ''
   const html = mainWrap(
-    `<div class="ct-container-full" data-content="normal"  data-vertical-spacing="top:bottom"><article class="post-${p.id}"> <div class="woocommerce-notices-wrapper"></div><div id="product-${p.id}" class="${productClasses(p, terms, ['first'])} ct-default-gallery"> <div class="product-entry-wrapper is-width-constrained">${gallery} <div class="summary entry-summary entry-summary-items"> <h1 class="product_title entry-title">${esc(name)}</h1><span class="ct-product-divider" data-id="i25rVXYM0yQzQlHp0EsFJ"></span><p class="price">${priceHtml(p)}</p> <span class="ct-product-divider" data-id="divider_1"></span>${atc}${short}${qtyDiscount} </div> </div> ${tabs} ${relHtml} </div> </article> </div>`,
+    `<div class="ct-container-full" data-content="normal"  data-vertical-spacing="top:bottom"><article class="post-${p.id}"> <div class="woocommerce-notices-wrapper"></div><div id="product-${p.id}" class="${productClasses(p, terms, ['first'])} ct-default-gallery"> <div class="product-entry-wrapper is-width-constrained">${gallery} <div class="summary entry-summary entry-summary-items"> <h1 class="product_title entry-title">${esc(name)}</h1><span class="ct-product-divider" data-id="i25rVXYM0yQzQlHp0EsFJ"></span><p class="price">${priceHtml(p)}</p> <span class="ct-product-divider" data-id="divider_1"></span>${atc}${short} </div> </div> ${tabs} ${relHtml} </div> </article> </div>`,
   )
   const floating = `<div class="ct-floating-bar" > <div class="ct-container"> <section class="ct-floating-bar-content"> <div class="ct-media-container">${img(media.get(p.featured_media_id), { cls: '', ratio: '1/1', alt: name, title: true }).replace(/width="\d+" height="\d+"/, 'width="100" height="100"')}</div> <div class="ct-floating-bar-item-title"> <div class="product-title">${esc(name)}</div> <p class="price">${priceHtml(p)}</p> </div> </section> <section class="ct-floating-bar-actions"> ${addToCartLoop(p).replace('class="button', p.type === 'variable' ? 'class="button' : 'class="button').replace(/class="button product_type_variable"/, 'class="button product_type_variable add_to_cart_button"')} </section> </div> </div>`
   return {
@@ -523,20 +522,8 @@ function discountLine(r: Row, v: Row): string {
   return `<p class="dayinup-discount">已套用優惠：${esc(r.label.replace(/^🎫\s*/, ''))}${zhe ? `（${zhe}）` : ''}${per}</p>`
 }
 
-function quantityDiscountTable(p: Row): string {
-  const rows = p.discount_rules
-    .map((r: Row) => {
-      const v = p.variations.find((x: Row) => x.id === r.variation_id)
-      const pct = Number(r.discount_value)
-      const zhe = r.discount_type === 'percent' ? `${String(100 - pct).replace(/0$/, '')} 折` : r.discount_type === 'fixed_price' ? `NT$${fmt(r.discount_value)}` : `折 NT$${fmt(r.discount_value)}`
-      return `<tr><td>${esc(r.label.replace(/^🎫\s*/, ''))}</td><td>${r.persons ? `${r.persons} 人` : '—'}</td><td>${zhe}</td><td>${v ? priceSaleOrMoney(v) : ''}</td></tr>`
-    })
-    .join('')
-  return `<details class="dayinup-qty-discounts"><summary>票種與團報優惠</summary><table class="shop_table"><thead><tr><th>票種</th><th>人數</th><th>優惠</th><th>價格</th></tr></thead><tbody>${rows}</tbody></table></details>`
-}
-function priceSaleOrMoney(v: Row) {
-  return v.sale_price != null && Number(v.sale_price) < Number(v.regular_price) ? priceSale(v.regular_price, v.sale_price) : money(v.price ?? v.regular_price)
-}
+// Ticket / group-discount rules are shown per selected variation (discount_html), like the old site;
+// no separate summary table (the old product page had none).
 
 /* ---------------------------------------------------------------- simple pages: cart / checkout / account / 404 */
 function shellPage(path: string, pageId: number, bodyCls: string, inner: string): Pick<View, 'bodyClass' | 'prefix' | 'html'> {
