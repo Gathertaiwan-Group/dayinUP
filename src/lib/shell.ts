@@ -16,8 +16,15 @@ function tree(items: Row[]) {
 
 function currentClasses(item: Row, kids: Row[], path: string, ACTIVE: string[]): string[] {
   const cls: string[] = []
-  if (item.url === path) cls.push('current-menu-item')
-  if (kids.some((k) => k.url === path)) cls.push('current-menu-ancestor', 'current-menu-parent')
+  if (item.url === path) {
+    cls.push('current-menu-item')
+    // WordPress adds the page_item classes when a menu item points at the page being viewed
+    if (item.object_type === 'page' && item.object_id) cls.push('page_item', `page-item-${item.object_id}`, 'current_page_item')
+  }
+  if (kids.some((k) => k.url === path)) {
+    cls.push('current-menu-ancestor', 'current-menu-parent')
+    if (kids.some((k) => k.url === path && k.object_type === 'page')) cls.push('current_page_parent', 'current_page_ancestor')
+  }
   if (ACTIVE.includes(item.url) || kids.some((k) => ACTIVE.includes(k.url))) cls.push('current-product-ancestor', 'current-menu-parent', 'current-product-parent')
   return [...new Set(cls)]
 }
