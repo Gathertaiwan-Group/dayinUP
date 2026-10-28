@@ -107,7 +107,7 @@ export async function issueMerchantOrderNo(orderId: number, merchantOrderNo: str
  * Anti-hoarding guard for NewebPay checkouts (unpaid orders hold stock for HOLD_STOCK_MINUTES). Counted in the DB
  * (site_dayinup.checkout_guard, per-ip / per-email advisory locks):
  *  - at most 10 checkout attempts per IP and 6 per e-mail in 10 minutes
- *  - at most 5 unpaid (pending, within the hold window) NewebPay orders per IP and 3 per e-mail
+ *  - at most 5 unpaid (pending or failed, created within the hold window) NewebPay orders per IP and 3 per e-mail
  * Returns a customer-facing message when blocked, else null. Fails open on DB errors (never blocks a real customer).
  */
 export const CHECKOUT_LIMITS = { windowMinutes: 10, maxAttemptsIp: 10, maxAttemptsEmail: 6, maxUnpaidIp: 5, maxUnpaidEmail: 3 }
@@ -125,7 +125,7 @@ export async function checkoutGuard(ip: string | null, email: string | null): Pr
 }
 
 /**
- * WooCommerce wc_cancel_unpaid_orders(): pending NewebPay checkout orders not modified for hold_stock_minutes are cancelled,
+ * WooCommerce wc_cancel_unpaid_orders(): pending NewebPay checkout orders created more than hold_stock_minutes ago are cancelled,
  * releasing their stock hold. Single source of truth = SQL site_dayinup.expire_unpaid_holds() (also run every 5 minutes by
  * pg_cron job site_dayinup_expire_holds). Called before every stock check (add to cart, cart qty change, checkout).
  * Limited to ry_newebpay% orders so the manual 待付款 fallback orders keep their old behaviour. Never throws.
@@ -142,10 +142,10 @@ export async function cancelUnpaidOrders(): Promise<number> {
 }
 
 /**
- * WooCommerce hold stock: quantities in NewebPay orders still awaiting payment (pending, within the hold window)
- * count as reserved. Returns an error message for the first line that cannot be fulfilled, else null.
+ * WooCommerce hold stock: quantities in NewebPay orders still awaiting payment (pending, created within the hold window)
+ * count as reserved; excludeOrderId leaves one order's own lines out (re-payment of that order). Returns an error message for the first line that cannot be fulfilled, else null.
  */
-export async function reservedStockError(items: { product_id: number; variation_id: number | null; quantity: number; name: string }[]): Promise<string | null> {
+export async function reservedStockError(items: { product_id: number; variation_id: number | null; quantity: number; name: string }[], excludeOrderId?: number): Promise<string | null> {
   const db = admin()
   const cutoff = new Date(Date.now() - HOLD_STOCK_MINUTES * 60_000).toISOString()
   const pids = [...new Set(items.map((i) => i.product_id))]
@@ -172,11 +172,11 @@ export async function reservedStockError(items: { product_id: number; variation_
     .select('id,order_items(product_id,variation_id,quantity,item_type)')
     .eq('status', 'pending')
     .like('payment_method', 'ry_newebpay%')
-    .gte('date_modified', cutoff)
+    .gte('date_created', cutoff) // creation time: pay-page loads (date_modified) must not extend a hold
     .limit(500)
   for (const n of need.values()) {
     let reserved = 0
-    for (const o of held || []) for (const it of (o as any).order_items || []) if (it.item_type === 'line_item' && Number(it[n.col]) === n.id) reserved += Number(it.quantity) || 0
+    for (const o of held || []) if ((o as any).id !== excludeOrderId) for (const it of (o as any).order_items || []) if (it.item_type === 'line_item' && Number(it[n.col]) === n.id) reserved += Number(it.quantity) || 0
     const left = Number(n.row.stock_quantity) - reserved
     if (n.qty > left) return `很抱歉，我們沒有足夠的「${n.name}」庫存來完成您的訂單（剩餘 ${Math.max(0, left)} 個）。造成不便，敬請見諒。`
   }

@@ -649,8 +649,8 @@ export async function updateOrderStatus(orderId: number, status: string, actor: 
       added_by: actor.email || actor.type,
     });
   await audit(actor, "status_change", "orders", orderId, { status: before.status }, { status, note: note || null });
-  // cancelled/failed → processing/completed reduces stock in the DB trigger site_dayinup.orders_reduce_stock_on_reopen
-  if (["cancelled", "failed"].includes(before.status) && ["processing", "completed"].includes(status)) refreshSite();
+  // stock is reduced / restored by the DB trigger site_dayinup.orders_sync_stock (status + stock_reduced)
+  if (Boolean(after?.stock_reduced) !== Boolean(before.stock_reduced)) refreshSite();
   return after;
 }
 

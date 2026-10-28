@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   aesEncrypt, aesDecrypt, tradeSha, configFromEnv, verifyInbound, processInbound, buildMpgForm, GATEWAYS,
   generateMerchantOrderNo, orderIdFromMerchantOrderNo, enabledGateways, guardMessage, clientIp, testModeBlocked,
+  payWindowClosed, PAY_WINDOW_MINUTES, HOLD_STOCK_MINUTES, TRADE_LIMIT_SECONDS,
 } from '../src/lib/newebpay/core.ts'
 
 const KEY = 'abcdefghijklmnopqrstuvwxyzABCDEF'
@@ -64,7 +65,18 @@ test('MPG form: amount from order, signed, decryptable', () => {
   assert.equal(q.get('Amt'), '1200')
   assert.equal(q.get('CREDIT'), '1')
   assert.equal(q.get('NotifyURL'), 'https://x/n')
+  assert.equal(q.get('TradeLimit'), String(TRADE_LIMIT_SECONDS))
   assert.throws(() => buildMpgForm(CFG, GATEWAYS[0], { id: 1, total: 0, itemNames: [] }, '1TS1', { notifyUrl: '', returnUrl: '', customerUrl: '', clientBackUrl: '' }))
+})
+
+test('pay window: page (TradeLimit) always closes >= 5 min before the hold expires; measured from date_created', () => {
+  assert.ok(TRADE_LIMIT_SECONDS >= 60 && TRADE_LIMIT_SECONDS <= 900)
+  assert.ok(PAY_WINDOW_MINUTES * 60 + TRADE_LIMIT_SECONDS <= (HOLD_STOCK_MINUTES - 5) * 60)
+  const created = '2026-10-29T00:00:00.000Z'
+  const t0 = Date.parse(created)
+  assert.equal(payWindowClosed(created, t0 + (PAY_WINDOW_MINUTES * 60 - 1) * 1000), false)
+  assert.equal(payWindowClosed(created, t0 + (PAY_WINDOW_MINUTES * 60 + 1) * 1000), true)
+  assert.equal(payWindowClosed(null, t0), true)
 })
 
 // ---------------------------------------------------------------- notify state machine (in-memory store)

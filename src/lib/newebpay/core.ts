@@ -67,8 +67,20 @@ export function gatewayById(id: string | null | undefined): GatewayDef | undefin
   return GATEWAYS.find((g) => g.id === id)
 }
 
-/** woocommerce_hold_stock_minutes on the old site */
+/** woocommerce_hold_stock_minutes on the old site. Measured from orders.date_created (never refreshed by the pay page). */
 export const HOLD_STOCK_MINUTES = 60
+/** MPG TradeLimit: the NewebPay payment page closes this many seconds after it is opened (allowed 60–900). */
+export const TRADE_LIMIT_SECONDS = 900
+/**
+ * A pending order may open the NewebPay page only within this many minutes of its creation, so the page (TradeLimit) closes
+ * at least 5 minutes before the hold expires (HOLD_STOCK_MINUTES) and the order is cancelled.
+ */
+export const PAY_WINDOW_MINUTES = HOLD_STOCK_MINUTES - TRADE_LIMIT_SECONDS / 60 - 5
+/** true when a pending NewebPay order is past its pay window (date_created + PAY_WINDOW_MINUTES). */
+export function payWindowClosed(dateCreated: string | null | undefined, nowMs = Date.now()): boolean {
+  const t = dateCreated ? Date.parse(dateCreated) : NaN
+  return !Number.isFinite(t) || nowMs > t + PAY_WINDOW_MINUTES * 60_000
+}
 /** WooCommerce: statuses from which payment_complete() may move an order to processing (enforced in SQL site_dayinup.newebpay_apply) */
 export const PAYABLE_FROM = ['pending', 'failed', 'cancelled', 'on-hold']
 /** WooCommerce needs_payment(): the customer may (re)start payment for these */
@@ -176,6 +188,7 @@ export function buildMpgForm(cfg: NewebpayConfig, gw: GatewayDef, order: MpgOrde
     Email: order.email || '',
     EmailModify: 0,
     LoginType: 0,
+    TradeLimit: TRADE_LIMIT_SECONDS,
     [gw.mpgFlag]: 1,
   }
   if (gw.mpgFlag !== 'CREDIT') {
