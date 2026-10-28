@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   aesEncrypt, aesDecrypt, tradeSha, configFromEnv, verifyInbound, processInbound, buildMpgForm, GATEWAYS,
-  generateMerchantOrderNo, orderIdFromMerchantOrderNo, enabledGateways, guardMessage, clientIp,
+  generateMerchantOrderNo, orderIdFromMerchantOrderNo, enabledGateways, guardMessage, clientIp, testModeBlocked,
 } from '../src/lib/newebpay/core.ts'
 
 const KEY = 'abcdefghijklmnopqrstuvwxyzABCDEF'
@@ -28,6 +28,24 @@ test('config: missing / malformed env → null (gateway hidden)', () => {
   const c = configFromEnv({ NEWEBPAY_MERCHANT_ID: 'M', NEWEBPAY_HASH_KEY: KEY, NEWEBPAY_HASH_IV: IV, NEWEBPAY_ENV: 'production' })
   assert.equal(c.env, 'production')
   assert.deepEqual(enabledGateways(c).map((g) => [g.id, g.title]), [['ry_newebpay_credit', '藍新信用卡']])
+})
+
+test('test-mode guard: VERCEL_ENV=production refuses NEWEBPAY_ENV=test (gateway hidden, no config for pay / notify)', async () => {
+  const keys = { NEWEBPAY_MERCHANT_ID: 'MS123456789', NEWEBPAY_HASH_KEY: KEY, NEWEBPAY_HASH_IV: IV }
+  const prodTest = { ...keys, NEWEBPAY_ENV: 'test', VERCEL_ENV: 'production' }
+  assert.equal(testModeBlocked(prodTest), true)
+  assert.equal(testModeBlocked({ ...prodTest, NEWEBPAY_ENV: ' TEST ' }), true)
+  assert.equal(configFromEnv(prodTest), null)
+  assert.equal(configFromEnv({ ...prodTest, NEWEBPAY_ENV: ' Test ' }), null)
+  assert.deepEqual(enabledGateways(configFromEnv(prodTest)), []) // checkout shows no NewebPay method
+  // allowed: test keys on Preview / local, production keys on production
+  assert.equal(testModeBlocked({ ...prodTest, VERCEL_ENV: 'preview' }), false)
+  assert.equal(configFromEnv({ ...prodTest, VERCEL_ENV: 'preview' }).env, 'test')
+  assert.equal(configFromEnv({ ...keys, NEWEBPAY_ENV: 'test' }).env, 'test')
+  assert.equal(configFromEnv({ ...prodTest, NEWEBPAY_ENV: 'production' }).env, 'production')
+  // a correctly signed test-merchant SUCCESS notify cannot be processed on production: there is no config to process it with
+  // (the notify route answers 503 and writes the newebpay_test_mode_blocked alert before touching any order)
+  assert.equal(configFromEnv(prodTest), null)
 })
 
 test('MerchantOrderNo format (RY Tools) round-trips the order id', () => {

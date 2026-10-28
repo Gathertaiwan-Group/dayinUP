@@ -3,6 +3,8 @@ import { requireAdmin } from "@/lib/admin/guard";
 import { publishDue } from "@/lib/schedule";
 import { logoutAction } from "../actions";
 import { Nav } from "./Nav";
+import { newebpayTestModeBlocked } from "@/lib/newebpay/service";
+import { TEST_MODE_BLOCKED_MESSAGE } from "@/lib/newebpay/core";
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
@@ -27,6 +29,11 @@ export default async function PanelLayout({ children }: { children: React.ReactN
             </form>
           </span>
         </div>
+        {newebpayTestModeBlocked() && (
+          <div role="alert" style={{ background: "#fde8e8", border: "1px solid #c81e1e", color: "#771d1d", padding: "12px 16px", margin: "0 0 16px", borderRadius: 4, fontWeight: 600 }}>
+            ⚠ {TEST_MODE_BLOCKED_MESSAGE}
+          </div>
+        )}
         {children}
       </main>
     </div>

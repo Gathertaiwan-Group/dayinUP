@@ -18,6 +18,7 @@ const FIELD_ORDER = ['email', 'country', 'first_name', 'last_name', 'company', '
 export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}))
   const db = admin()
+  await cancelUnpaidOrders() // release stock held by expired unpaid orders before any stock check (never throws)
   const cart = await getCartRow(false)
   const sum = await summarize(cart)
   if (!cart || !sum.items.length) return NextResponse.json({ ok: false, error: '您的購物車是空的。' }, { status: 400 })
@@ -44,7 +45,6 @@ export async function POST(req: Request) {
   if (gateways.length && sum.total > 0) {
     gateway = gateways.find((g) => g.id === b.payment_method) || null
     if (!gateway) return NextResponse.json({ ok: false, error: '請選擇付款方式。' }, { status: 400 })
-    await cancelUnpaidOrders().catch(() => 0) // free stock held by expired unpaid orders first
     // anti-hoarding: unpaid NewebPay orders hold stock, so cap them per IP / e-mail and rate-limit checkout (DB-counted)
     const blocked = await checkoutGuard(clientIp(req.headers), billing.email || null)
     if (blocked) return NextResponse.json({ ok: false, error: blocked }, { status: 429 })

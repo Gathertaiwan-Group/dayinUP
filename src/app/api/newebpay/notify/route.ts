@@ -1,5 +1,5 @@
 import { processInbound } from '@/lib/newebpay/core'
-import { newebpayConfig, supabaseStore } from '@/lib/newebpay/service'
+import { alertTestModeBlocked, newebpayConfig, newebpayTestModeBlocked, supabaseStore } from '@/lib/newebpay/service'
 import { readInbound } from '@/lib/newebpay/http'
 
 export const dynamic = 'force-dynamic'
@@ -9,6 +9,11 @@ export const dynamic = 'force-dynamic'
  * Verifies TradeSha + AES, MerchantID, issued MerchantOrderNo and amount; idempotent (status CAS + stock_reduced claim).
  */
 export async function POST(req: Request) {
+  if (newebpayTestModeBlocked()) {
+    // production + NEWEBPAY_ENV=test: never mark anything paid (test cards would "pay" real orders)
+    await alertTestModeBlocked('notify', { refused: 'notify' }, true)
+    return new Response('NOT CONFIGURED', { status: 503, headers: { 'Cache-Control': 'no-store' } })
+  }
   const cfg = newebpayConfig()
   if (!cfg) return new Response('NOT CONFIGURED', { status: 503 })
   const body = await readInbound(req)

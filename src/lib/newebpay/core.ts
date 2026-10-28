@@ -21,8 +21,18 @@ export const GATEWAY_URL: Record<NewebpayEnv, string> = {
   production: 'https://core.newebpay.com/MPG/mpg_gateway',
 }
 
-/** null = not configured → the gateway is hidden and checkout keeps the plain 待付款 behaviour. */
+/**
+ * Test-mode guard: on the Vercel *production* deployment (VERCEL_ENV=production) NEWEBPAY_ENV=test is always refused.
+ * A test merchant on production would let anyone mark real orders paid with NewebPay's public test cards while the
+ * shop never receives money. Test keys belong in the Vercel *Preview* environment only.
+ */
+export function testModeBlocked(env: Record<string, string | undefined>): boolean {
+  return (env.VERCEL_ENV || '').trim() === 'production' && (env.NEWEBPAY_ENV || '').trim().toLowerCase() === 'test'
+}
+
+/** null = not configured (or refused by testModeBlocked) → the gateway is hidden and checkout keeps the plain 待付款 behaviour. */
 export function configFromEnv(env: Record<string, string | undefined>): NewebpayConfig | null {
+  if (testModeBlocked(env)) return null
   const merchantId = (env.NEWEBPAY_MERCHANT_ID || '').trim()
   const hashKey = (env.NEWEBPAY_HASH_KEY || '').trim()
   const hashIV = (env.NEWEBPAY_HASH_IV || '').trim()
@@ -31,6 +41,9 @@ export function configFromEnv(env: Record<string, string | undefined>): Newebpay
   if (e !== 'test' && e !== 'production') return null
   return { merchantId, hashKey, hashIV, env: e }
 }
+
+export const TEST_MODE_BLOCKED_MESSAGE =
+  '藍新金流設定錯誤：正式環境（VERCEL_ENV=production）設定了 NEWEBPAY_ENV=test，已停用藍新付款（不顯示付款方式、不建立付款、不接受付款通知）。請改用正式金鑰並設 NEWEBPAY_ENV=production；測試金鑰只能放在 Vercel Preview 環境。'
 
 // ------------------------------------------------------------------ payment methods (old site: only 藍新信用卡 enabled)
 

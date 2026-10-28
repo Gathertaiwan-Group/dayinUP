@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { buildMpgForm, gatewayById, generateMerchantOrderNo, NEEDS_PAYMENT, orderAmount } from '@/lib/newebpay/core'
-import { baseUrl, issueMerchantOrderNo, newebpayConfig } from '@/lib/newebpay/service'
+import { alertTestModeBlocked, baseUrl, issueMerchantOrderNo, newebpayConfig, newebpayTestModeBlocked } from '@/lib/newebpay/service'
 import { esc } from '@/lib/newebpay/http'
 import { admin } from '@/lib/supabase'
 
@@ -18,6 +18,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { data: o } = await db.from('orders').select('id,order_key,status,total,payment_method,billing_email').eq('id', orderId).maybeSingle()
   if (!o || !key || key !== o.order_key) return NextResponse.json({ ok: false, error: '找不到訂單。' }, { status: 404 })
   const received = new URL(`/checkout/order-received/${o.id}/?key=${encodeURIComponent(o.order_key)}`, req.url)
+  if (newebpayTestModeBlocked()) await alertTestModeBlocked('pay', { order_id: o.id }, true) // no payment is created
   const cfg = newebpayConfig()
   const gw = gatewayById(o.payment_method)
   if (!cfg || !gw || !gw.enabled || !NEEDS_PAYMENT.includes(o.status) || orderAmount(o.total) <= 0) return NextResponse.redirect(received, 303)

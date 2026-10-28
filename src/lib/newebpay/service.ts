@@ -2,9 +2,40 @@
 import 'server-only'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { admin } from '@/lib/supabase'
-import { configFromEnv, enabledGateways, guardMessage, HOLD_STOCK_MINUTES, type ApplyResult, type NewebpayConfig, type PaymentStore, type StoreOrder } from './core'
+import { configFromEnv, enabledGateways, guardMessage, HOLD_STOCK_MINUTES, testModeBlocked, TEST_MODE_BLOCKED_MESSAGE, type ApplyResult, type NewebpayConfig, type PaymentStore, type StoreOrder } from './core'
+
+/** true when this production deployment carries NEWEBPAY_ENV=test (NewebPay is then fully disabled, see core.testModeBlocked). */
+export function newebpayTestModeBlocked(): boolean {
+  return testModeBlocked(process.env)
+}
+
+let lastBlockedAlert = 0
+/**
+ * Log + admin alert (audit_log action newebpay_test_mode_blocked, shown on /admin/audit and as a banner on every admin
+ * page) for the production/test-key misconfiguration. Inbound/payment paths pass force=true so every refused attempt is
+ * recorded; page renders are throttled to one row per 10 minutes per instance.
+ */
+export async function alertTestModeBlocked(where: string, detail: Record<string, unknown> = {}, force = false): Promise<void> {
+  console.error(`[newebpay] ${where}: ${TEST_MODE_BLOCKED_MESSAGE}`)
+  const now = Date.now()
+  if (!force && now - lastBlockedAlert < 10 * 60_000) return
+  lastBlockedAlert = now
+  try {
+    const { error } = await admin().from('audit_log').insert({
+      actor: 'newebpay', via: 'system', action: 'newebpay_test_mode_blocked', entity_type: 'settings', entity_id: 'newebpay',
+      before: null, after: { where, vercel_env: 'production', newebpay_env: 'test', ...detail },
+    })
+    if (error) console.error('audit_log insert failed:', error.message)
+  } catch (e) {
+    console.error('audit_log insert failed:', (e as Error).message)
+  }
+}
 
 export function newebpayConfig(): NewebpayConfig | null {
+  if (newebpayTestModeBlocked()) {
+    void alertTestModeBlocked('config')
+    return null
+  }
   return configFromEnv(process.env)
 }
 
@@ -94,30 +125,20 @@ export async function checkoutGuard(ip: string | null, email: string | null): Pr
 }
 
 /**
- * WooCommerce wc_cancel_unpaid_orders(): pending checkout orders not modified for hold_stock_minutes are cancelled.
- * Limited to NewebPay orders so the manual 待付款 fallback orders keep their old behaviour.
+ * WooCommerce wc_cancel_unpaid_orders(): pending NewebPay checkout orders not modified for hold_stock_minutes are cancelled,
+ * releasing their stock hold. Single source of truth = SQL site_dayinup.expire_unpaid_holds() (also run every 5 minutes by
+ * pg_cron job site_dayinup_expire_holds). Called before every stock check (add to cart, cart qty change, checkout).
+ * Limited to ry_newebpay% orders so the manual 待付款 fallback orders keep their old behaviour. Never throws.
  */
 export async function cancelUnpaidOrders(): Promise<number> {
-  if (!newebpayConfig()) return 0
-  const db = admin()
-  const cutoff = new Date(Date.now() - HOLD_STOCK_MINUTES * 60_000).toISOString()
-  const { data } = await db
-    .from('orders')
-    .select('id')
-    .eq('status', 'pending')
-    .eq('created_via', 'checkout')
-    .like('payment_method', 'ry_newebpay%')
-    .lt('date_modified', cutoff)
-    .limit(50)
-  let n = 0
-  for (const o of data || []) {
-    const { data: upd } = await db.from('orders').update({ status: 'cancelled', date_modified: new Date().toISOString() }).eq('id', o.id).eq('status', 'pending').lt('date_modified', cutoff).select('id')
-    if (!upd?.length) continue
-    n++
-    await note(o.id, '未付款訂單已取消 - 付款期限已過。 訂單狀態由 等待付款中 變更為 已取消.')
-    await auditRow('unpaid_cancelled', o.id, { status: 'pending' }, { status: 'cancelled', hold_stock_minutes: HOLD_STOCK_MINUTES })
+  try {
+    const { data, error } = await admin().rpc('expire_unpaid_holds', { p_hold_minutes: HOLD_STOCK_MINUTES })
+    if (error) throw new Error(error.message)
+    return Number(data) || 0
+  } catch (e) {
+    console.error('expire_unpaid_holds failed:', (e as Error).message)
+    return 0
   }
-  return n
 }
 
 /**

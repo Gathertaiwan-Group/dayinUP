@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { admin } from '@/lib/supabase'
 import { getCartRow, priceFor, summarize, couponByCode } from '@/lib/cart'
+import { cancelUnpaidOrders } from '@/lib/newebpay/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,7 @@ export async function POST(req: Request) {
   const vid = b.variation_id ? Number(b.variation_id) : null
   const qty = Math.max(1, Math.min(9999, parseInt(b.quantity, 10) || 1))
   if (!pid) return NextResponse.json({ ok: false, error: '缺少商品。' }, { status: 400 })
+  await cancelUnpaidOrders() // release expired unpaid holds before any stock check (never throws)
   const pr = await priceFor(pid, vid)
   if ('error' in pr) return NextResponse.json({ ok: false, error: pr.error }, { status: 400 })
   const cart = await getCartRow(true)
@@ -55,6 +57,7 @@ export async function PATCH(req: Request) {
   if (row.error || !row.data) return NextResponse.json({ ok: false, error: '找不到購物車項目。' }, { status: 404 })
   if (!qty || qty < 1) await db.from('cart_items').delete().eq('id', key)
   else {
+    await cancelUnpaidOrders() // release expired unpaid holds before any stock check (never throws)
     const pr = await priceFor(row.data.product_id, row.data.variation_id)
     if ('error' in pr) return NextResponse.json({ ok: false, error: pr.error, cart: await summarize(cart) }, { status: 400 })
     if (pr.maxQty != null && qty > pr.maxQty) return NextResponse.json({ ok: false, error: `庫存不足，最多可購買 ${pr.maxQty} 件。`, cart: await summarize(cart) }, { status: 400 })

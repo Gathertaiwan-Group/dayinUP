@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { orderIdFromMerchantOrderNo, processInbound, verifyInbound } from '@/lib/newebpay/core'
-import { newebpayConfig, supabaseStore } from '@/lib/newebpay/service'
+import { alertTestModeBlocked, newebpayConfig, newebpayTestModeBlocked, supabaseStore } from '@/lib/newebpay/service'
 import { readInbound } from '@/lib/newebpay/http'
 import { admin } from '@/lib/supabase'
 
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic'
 
 /** CustomerURL (ATM / 超商代碼 取號完成; unused while only 信用卡 is enabled): store the payment instructions, then show the order. */
 export async function POST(req: Request) {
+  if (newebpayTestModeBlocked()) await alertTestModeBlocked('customer', { refused: 'customer' }, true)
   const cfg = newebpayConfig()
   if (!cfg) return NextResponse.redirect(new URL('/cart/', req.url), 303)
   const body = await readInbound(req)
