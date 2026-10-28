@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   aesEncrypt, aesDecrypt, tradeSha, configFromEnv, verifyInbound, processInbound, buildMpgForm, GATEWAYS,
-  generateMerchantOrderNo, orderIdFromMerchantOrderNo, enabledGateways,
+  generateMerchantOrderNo, orderIdFromMerchantOrderNo, enabledGateways, guardMessage, clientIp,
 } from '../src/lib/newebpay/core.ts'
 
 const KEY = 'abcdefghijklmnopqrstuvwxyzABCDEF'
@@ -58,18 +58,54 @@ function notifyBody(result, status = 'SUCCESS', message = '授權成功', cfg = 
 const MON = '1000123TS50000007171'
 const okResult = (over = {}) => ({ MerchantID: 'MS123456789', Amt: 1200, TradeNo: '23110112345678', MerchantOrderNo: MON, PaymentType: 'CREDIT', PayTime: '2023-11-01 12:00:00', Card6No: '400022', Card4No: '1111', Auth: '123456', ...over })
 
+const ZH = { pending: '等待付款中', processing: '處理中', 'on-hold': '保留', cancelled: '已取消', failed: '失敗' }
+const FROM = { paid: ['pending', 'failed', 'cancelled', 'on-hold'], 'on-hold': ['pending', 'failed'], failed: ['pending'] }
+const TO = { paid: 'processing', 'on-hold': 'on-hold', failed: 'failed' }
+
+// In-memory model of site_dayinup.newebpay_apply: all-or-nothing (snapshot + rollback on error), serialised like a row lock.
+// `failNext` injects one DB error after the status/meta/notes writes but before the stock step (simulates a mid-way failure).
 function makeStore(status = 'pending', total = '1200.00') {
+  let lock = Promise.resolve()
   const s = {
     order: { id: 1000123, status, total, payment_method: 'ry_newebpay_credit', stock_reduced: false, meta: { newebpay: { merchant_order_nos: [MON] } }, transaction_id: null },
-    stock: 10, notes: [], audits: [], logs: [],
+    stock: 10, notes: [], audits: [], logs: [], failNext: false,
     async getOrder(id) { return id === s.order.id ? structuredClone(s.order) : null },
-    async casStatus(id, from, to, patch) {
-      if (id !== s.order.id || !from.includes(s.order.status)) return false
-      Object.assign(s.order, patch, { status: to }); return true
+    async apply(id, kind, tradeNo, info, notes) {
+      const run = async () => {
+        await new Promise((r) => setTimeout(r, 1))
+        const snap = structuredClone({ order: s.order, stock: s.stock, notes: s.notes })
+        try {
+          const o = s.order
+          const same = !!tradeNo && o.meta.newebpay?.trade_no === tradeNo
+          const prev = o.status
+          let reduce
+          if (!FROM[kind].includes(o.status)) {
+            reduce = kind !== 'failed' && same && o.status === TO[kind] && !o.stock_reduced
+            if (!reduce) return { result: same ? 'same' : 'other', prev_status: prev, status: prev, stock_lines: [] }
+          } else {
+            o.status = TO[kind]
+            if (kind === 'paid') o.transaction_id = tradeNo
+            o.meta = { ...o.meta, newebpay: { ...o.meta.newebpay, ...info } }
+            for (const n of notes) s.notes.push(n.replace('{from}', ZH[prev] || prev))
+            reduce = kind !== 'failed' && !o.stock_reduced
+          }
+          if (s.failNext) { s.failNext = false; throw new Error('simulated DB error') }
+          const lines = []
+          if (reduce) {
+            const old = s.stock; s.stock -= 2; o.stock_reduced = true
+            lines.push(`票券A (#1) ${old}→${s.stock}`)
+            s.notes.push(`庫存量已減少： ${lines.join(', ')}`)
+          }
+          return { result: FROM[kind].includes(prev) ? 'applied' : 'completed', prev_status: prev, status: TO[kind], stock_lines: lines }
+        } catch (e) {
+          Object.assign(s, snap)
+          throw e
+        }
+      }
+      const p = lock.then(run)
+      lock = p.catch(() => {})
+      return p
     },
-    async claimStockReduction(id) { if (s.order.stock_reduced) return false; s.order.stock_reduced = true; return true },
-    async reduceStock() { const o = s.stock; s.stock -= 2; return [`票券A (#1) ${o}→${s.stock}`] },
-    async mergeMeta(id, n) { s.order.meta = { ...s.order.meta, newebpay: { ...s.order.meta.newebpay, ...n } } },
     async addNote(id, n) { s.notes.push(n) },
     async audit(a, id, b, af) { s.audits.push(a) },
     async logNotification(r) { s.logs.push(r.outcome) },
@@ -181,4 +217,65 @@ test('second, different successful trade on a paid order → duplicate + manual-
 
 test('verifyInbound rejects missing fields', () => {
   assert.deepEqual(verifyInbound(CFG, {}), { ok: false, error: 'missing' })
+})
+
+// ---------------------------------------------------------------- security review follow-ups
+
+test('mid-way DB failure → notify throws (route answers 500), nothing half-written; NewebPay resend completes it once', async () => {
+  const s = makeStore()
+  const body = notifyBody(okResult())
+  s.failNext = true
+  await assert.rejects(processInbound(s, CFG, body), /simulated DB error/)
+  assert.equal(s.order.status, 'pending') // rolled back: no "paid but stock never reduced" state
+  assert.equal(s.order.transaction_id, null)
+  assert.equal(s.stock, 10)
+  assert.deepEqual(s.notes, [])
+  const r = await processInbound(s, CFG, body) // NewebPay retries after the 500
+  assert.deepEqual(r, { http: 200, outcome: 'paid' })
+  assert.equal(s.order.status, 'processing')
+  assert.equal(s.stock, 8)
+  assert.equal(s.notes.filter((n) => n === '付款完成').length, 1)
+  assert.ok(!s.notes.some((n) => /人工確認/.test(n)), 'no false "possible double payment" note')
+  assert.equal((await processInbound(s, CFG, body)).outcome, 'duplicate')
+  assert.equal(s.stock, 8)
+})
+
+test('legacy partial state (processing, same trade, stock not reduced) → resend finishes the stock step, no refund note', async () => {
+  const s = makeStore('processing')
+  s.order.meta.newebpay.trade_no = '23110112345678'
+  const r = await processInbound(s, CFG, notifyBody(okResult()))
+  assert.equal(r.outcome, 'paid')
+  assert.equal(s.stock, 8)
+  assert.ok(s.audits.includes('newebpay_paid_completed'))
+  assert.ok(!s.notes.some((n) => /人工確認/.test(n)))
+})
+
+test('status note uses the status that was actually changed (failed → processing)', async () => {
+  const s = makeStore('failed')
+  await processInbound(s, CFG, notifyBody(okResult()))
+  assert.ok(s.notes.includes('訂單狀態由 失敗 變更為 處理中.'))
+})
+
+test('ATM/CVS 取號 (customer) → on-hold with instructions + stock once; resend duplicate', async () => {
+  const s = makeStore()
+  const body = notifyBody(okResult({ PaymentType: 'CVS', CodeNo: 'LLL12345678', ExpireDate: '2026-11-01' }))
+  assert.equal((await processInbound(s, CFG, body, 'customer')).outcome, 'on-hold')
+  assert.equal(s.order.status, 'on-hold')
+  assert.match(s.notes[0], /超商代碼：LLL12345678.*等待付款中 變更為 保留/)
+  assert.equal(s.stock, 8)
+  assert.equal((await processInbound(s, CFG, body, 'customer')).outcome, 'duplicate')
+  // later paid notify: on-hold → processing, stock not reduced again
+  assert.equal((await processInbound(s, CFG, notifyBody(okResult()))).outcome, 'paid')
+  assert.equal(s.stock, 8)
+})
+
+test('checkout guard messages + client IP extraction', () => {
+  assert.equal(guardMessage(null), null)
+  assert.match(guardMessage('unpaid_email'), /尚未付款的訂單/)
+  assert.match(guardMessage('unpaid_ip'), /60 分鐘/)
+  assert.match(guardMessage('rate_ip'), /過於頻繁/)
+  const h = (o) => ({ get: (k) => o[k] ?? null })
+  assert.equal(clientIp(h({ 'x-real-ip': '1.2.3.4', 'x-forwarded-for': '9.9.9.9' })), '1.2.3.4')
+  assert.equal(clientIp(h({ 'x-forwarded-for': '5.6.7.8, 10.0.0.1' })), '5.6.7.8')
+  assert.equal(clientIp(h({})), null)
 })

@@ -2,7 +2,7 @@
 import 'server-only'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { admin } from '@/lib/supabase'
-import { configFromEnv, enabledGateways, HOLD_STOCK_MINUTES, type NewebpayConfig, type PaymentStore, type StoreOrder } from './core'
+import { configFromEnv, enabledGateways, guardMessage, HOLD_STOCK_MINUTES, type ApplyResult, type NewebpayConfig, type PaymentStore, type StoreOrder } from './core'
 
 export function newebpayConfig(): NewebpayConfig | null {
   return configFromEnv(process.env)
@@ -39,72 +39,18 @@ async function note(orderId: number, text: string) {
   await admin().from('order_notes').insert({ order_id: orderId, note: text, added_by: 'system' })
 }
 
-/** Decrement one stock row with compare-and-set (safe against concurrent orders). Returns [old, new] or null. */
-async function casDecrement(table: 'products' | 'product_variations', id: number, qty: number): Promise<[number, number] | null> {
-  const db = admin()
-  for (let i = 0; i < 5; i++) {
-    const { data: cur } = await db.from(table).select('stock_quantity,backorders').eq('id', id).single()
-    if (!cur || cur.stock_quantity === null) return null
-    const old = Number(cur.stock_quantity)
-    const next = old - qty
-    const patch: Record<string, unknown> = { stock_quantity: next }
-    if (next <= 0) patch.stock_status = cur.backorders && cur.backorders !== 'no' ? 'onbackorder' : 'outofstock'
-    const { data: upd } = await db.from(table).update(patch).eq('id', id).eq('stock_quantity', old).select('id')
-    if (upd && upd.length) return [old, next]
-  }
-  return null
-}
-
 export const supabaseStore: PaymentStore = {
   async getOrder(id) {
-    const { data } = await admin().from('orders').select('id,status,total,payment_method,stock_reduced,meta').eq('id', id).maybeSingle()
+    const { data, error } = await admin().from('orders').select('id,status,total,payment_method,stock_reduced,meta').eq('id', id).maybeSingle()
+    if (error) throw new Error(error.message)
     return (data as StoreOrder) || null
   },
-  async casStatus(id, from, to, patch) {
-    const { data, error } = await admin()
-      .from('orders')
-      .update({ ...patch, status: to, date_modified: new Date().toISOString() })
-      .eq('id', id)
-      .in('status', from)
-      .select('id')
+  async apply(orderId, kind, tradeNo, info, notes) {
+    const { data, error } = await admin().rpc('newebpay_apply', { p_order_id: orderId, p_kind: kind, p_trade_no: tradeNo, p_info: info, p_notes: notes })
     if (error) throw new Error(error.message)
-    return !!data?.length
-  },
-  async claimStockReduction(id) {
-    const { data, error } = await admin().from('orders').update({ stock_reduced: true }).eq('id', id).eq('stock_reduced', false).select('id')
-    if (error) throw new Error(error.message)
-    return !!data?.length
-  },
-  async reduceStock(orderId) {
-    const db = admin()
-    const { data: items } = await db.from('order_items').select('id,name,product_id,variation_id,quantity,meta').eq('order_id', orderId).eq('item_type', 'line_item')
-    const lines: string[] = []
-    for (const it of items || []) {
-      const qty = Number(it.quantity) || 0
-      if (!qty) continue
-      let target: { table: 'products' | 'product_variations'; id: number } | null = null
-      if (it.variation_id) {
-        const { data: v } = await db.from('product_variations').select('id,manage_stock').eq('id', it.variation_id).maybeSingle()
-        if (v?.manage_stock) target = { table: 'product_variations', id: v.id }
-      }
-      if (!target && it.product_id) {
-        const { data: p } = await db.from('products').select('id,manage_stock').eq('id', it.product_id).maybeSingle()
-        if (p?.manage_stock) target = { table: 'products', id: p.id }
-      }
-      if (!target) continue
-      const r = await casDecrement(target.table, target.id, qty)
-      if (!r) continue
-      lines.push(`${it.name} (#${target.id}) ${r[0]}→${r[1]}`)
-      await db.from('order_items').update({ meta: { ...(it.meta || {}), _reduced_stock: qty } }).eq('id', it.id)
-    }
-    if (lines.length) refresh()
-    return lines
-  },
-  async mergeMeta(id, nwp) {
-    const db = admin()
-    const { data } = await db.from('orders').select('meta').eq('id', id).single()
-    const meta = data?.meta || {}
-    await db.from('orders').update({ meta: { ...meta, newebpay: { ...(meta.newebpay || {}), ...nwp } } }).eq('id', id)
+    const r = data as ApplyResult
+    if (r.stock_lines?.length) refresh()
+    return r
   },
   addNote: note,
   audit: auditRow,
@@ -114,16 +60,37 @@ export const supabaseStore: PaymentStore = {
   },
 }
 
-/** Record a newly issued MerchantOrderNo on the order (a retry after failure issues a new one). */
+/**
+ * Record a newly issued MerchantOrderNo on the order (a retry after failure issues a new one).
+ * Atomic (row lock in site_dayinup.newebpay_issue_order_no): concurrent pay-page loads never lose a number. Throws on failure
+ * so the customer is never sent to NewebPay with a number the notify handler would reject.
+ */
 export async function issueMerchantOrderNo(orderId: number, merchantOrderNo: string, gatewayTitle: string, noteLabel: string) {
-  const db = admin()
-  const { data } = await db.from('orders').select('meta').eq('id', orderId).single()
-  const meta = data?.meta || {}
-  const prev = meta.newebpay || {}
-  const nos: string[] = [...(prev.merchant_order_nos || []), merchantOrderNo].slice(-20)
-  await db.from('orders').update({ meta: { ...meta, newebpay: { ...prev, merchant_order_nos: nos, last_merchant_order_no: merchantOrderNo } }, date_modified: new Date().toISOString() }).eq('id', orderId)
+  const { data, error } = await admin().rpc('newebpay_issue_order_no', { p_order_id: orderId, p_merchant_order_no: merchantOrderNo })
+  if (error || data !== true) throw new Error(`issue MerchantOrderNo failed: ${error?.message || 'order not found'}`)
   await note(orderId, `使用 ${noteLabel} 付款`)
   await auditRow('newebpay_redirect', orderId, null, { merchant_order_no: merchantOrderNo, gateway: gatewayTitle })
+}
+
+/**
+ * Anti-hoarding guard for NewebPay checkouts (unpaid orders hold stock for HOLD_STOCK_MINUTES). Counted in the DB
+ * (site_dayinup.checkout_guard, per-ip / per-email advisory locks):
+ *  - at most 10 checkout attempts per IP and 6 per e-mail in 10 minutes
+ *  - at most 5 unpaid (pending, within the hold window) NewebPay orders per IP and 3 per e-mail
+ * Returns a customer-facing message when blocked, else null. Fails open on DB errors (never blocks a real customer).
+ */
+export const CHECKOUT_LIMITS = { windowMinutes: 10, maxAttemptsIp: 10, maxAttemptsEmail: 6, maxUnpaidIp: 5, maxUnpaidEmail: 3 }
+export async function checkoutGuard(ip: string | null, email: string | null): Promise<string | null> {
+  const L = CHECKOUT_LIMITS
+  const { data, error } = await admin().rpc('checkout_guard', {
+    p_ip: ip, p_email: email, p_window_minutes: L.windowMinutes, p_max_attempts_ip: L.maxAttemptsIp, p_max_attempts_email: L.maxAttemptsEmail,
+    p_hold_minutes: HOLD_STOCK_MINUTES, p_max_unpaid_ip: L.maxUnpaidIp, p_max_unpaid_email: L.maxUnpaidEmail,
+  })
+  if (error) {
+    console.error('checkout_guard failed:', error.message)
+    return null
+  }
+  return guardMessage(data as string | null)
 }
 
 /**

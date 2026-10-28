@@ -56,13 +56,27 @@ export function gatewayById(id: string | null | undefined): GatewayDef | undefin
 
 /** woocommerce_hold_stock_minutes on the old site */
 export const HOLD_STOCK_MINUTES = 60
-/** WooCommerce: statuses from which payment_complete() may move an order to processing */
+/** WooCommerce: statuses from which payment_complete() may move an order to processing (enforced in SQL site_dayinup.newebpay_apply) */
 export const PAYABLE_FROM = ['pending', 'failed', 'cancelled', 'on-hold']
 /** WooCommerce needs_payment(): the customer may (re)start payment for these */
 export const NEEDS_PAYMENT = ['pending', 'failed']
 
 export const WC_STATUS_ZH: Record<string, string> = {
   pending: '等待付款中', processing: '處理中', 'on-hold': '保留', completed: '完成', cancelled: '已取消', refunded: '已退費', failed: '失敗',
+}
+
+/** Customer-facing text for a checkout_guard() verdict (null = allowed). */
+export function guardMessage(code: string | null | undefined): string | null {
+  if (!code) return null
+  if (code === 'unpaid_ip' || code === 'unpaid_email')
+    return `您已有尚未付款的訂單，請先至「我的帳戶 → 訂單」完成付款，或等待 ${HOLD_STOCK_MINUTES} 分鐘未付款訂單自動取消後再下單。`
+  return '結帳次數過於頻繁，請稍候 10 分鐘再試。'
+}
+
+/** Client IP as set by the platform proxy (Vercel overwrites x-real-ip / x-forwarded-for; clients cannot spoof them). */
+export function clientIp(headers: { get(name: string): string | null }): string | null {
+  const ip = (headers.get('x-real-ip') || (headers.get('x-forwarded-for') || '').split(',')[0] || '').trim()
+  return ip ? ip.slice(0, 64) : null
 }
 
 // ------------------------------------------------------------------ crypto (NewebPay MPG: AES-256-CBC hex, 32-byte PKCS#7-style padding; SHA256)
@@ -107,8 +121,11 @@ export function buildQuery(params: Record<string, string | number>): string {
 
 // ------------------------------------------------------------------ MPG request
 
-/** RY Tools format: <order id>TS<rand digit><reversed unix time>, max 30 chars (A-Z a-z 0-9 _) */
-export function generateMerchantOrderNo(orderId: number, nowMs = Date.now(), rand = crypto.randomInt(0, 10)): string {
+/**
+ * RY Tools format: <order id>TS<rand><reversed unix time>, max 30 chars (A-Z a-z 0-9 _). RY uses one random digit; we use
+ * 0–999 so two pay-page loads in the same second (two tabs) practically never get the same number (NewebPay rejects repeats).
+ */
+export function generateMerchantOrderNo(orderId: number, nowMs = Date.now(), rand = crypto.randomInt(0, 1000)): string {
   return `${orderId}TS${rand}${String(Math.floor(nowMs / 1000)).split('').reverse().join('')}`.slice(0, 30)
 }
 export function orderIdFromMerchantOrderNo(no: string): number | null {
@@ -217,14 +234,23 @@ export function paymentInfo(r: Record<string, any>) {
 
 export type StoreOrder = { id: number; status: string; total: number | string; payment_method: string | null; stock_reduced: boolean; meta: Record<string, any> }
 
+export type ApplyKind = 'paid' | 'on-hold' | 'failed'
+export type ApplyResult = {
+  /** applied = status changed now; completed = same trade, only the missing stock step was finished; same / other = already handled */
+  result: 'applied' | 'completed' | 'same' | 'other' | 'not_found'
+  prev_status?: string
+  status?: string
+  stock_lines?: string[]
+}
+
 export interface PaymentStore {
   getOrder(id: number): Promise<StoreOrder | null>
-  /** atomic compare-and-set on status; returns true only for the single caller that changed it */
-  casStatus(id: number, from: string[], to: string, patch: Record<string, unknown>): Promise<boolean>
-  /** atomic claim of orders.stock_reduced false→true */
-  claimStockReduction(id: number): Promise<boolean>
-  reduceStock(orderId: number): Promise<string[]> // returns note lines
-  mergeMeta(id: number, newebpay: Record<string, unknown>): Promise<void>
+  /**
+   * ONE transaction under a row lock (site_dayinup.newebpay_apply): status compare-and-set + trade data (meta, transaction_id,
+   * date_paid) + notes + stock reduction (once, guarded by stock_reduced). Throws on DB error with nothing written.
+   * `{from}` in notes is replaced with the zh label of the status that was actually changed.
+   */
+  apply(orderId: number, kind: ApplyKind, tradeNo: string | null, info: Record<string, unknown>, notes: string[]): Promise<ApplyResult>
   addNote(orderId: number, note: string): Promise<void>
   audit(action: string, orderId: number | null, before: unknown, after: unknown): Promise<void>
   logNotification(row: { order_id: number | null; kind: string; merchant_order_no: string | null; trade_no: string | null; status: string | null; amount: number | null; outcome: string; result: unknown }): Promise<void>
@@ -268,61 +294,46 @@ export async function processInbound(store: PaymentStore, cfg: NewebpayConfig, b
     return { http: 400, outcome: 'amount_mismatch' }
   }
 
-  const info = paymentInfo(Result)
-  const prevInfo = order.meta?.newebpay || {}
+  const info: Record<string, string> = { ...paymentInfo(Result), status: Status, message: Message }
 
   if (Status === 'SUCCESS' && kind === 'notify') {
-    const won = await store.casStatus(order.id, PAYABLE_FROM, 'processing', { transaction_id: tradeNo, date_paid: new Date().toISOString() })
-    if (!won) {
+    const r = await store.apply(order.id, 'paid', tradeNo, info, ['付款完成', '訂單狀態由 {from} 變更為 處理中.'])
+    if (r.result !== 'applied' && r.result !== 'completed') {
       // already paid (or refunded/completed): a resend of the same notify is a no-op; a *different* trade is a double charge
-      const same = prevInfo.trade_no && prevInfo.trade_no === tradeNo
       await log(order.id, 'duplicate')
-      if (!same) {
-        await store.addNote(order.id, `收到另一筆藍新付款成功通知（交易序號 ${tradeNo}），訂單已是「${WC_STATUS_ZH[order.status] || order.status}」，未重複處理，請人工確認是否需退款。`)
+      if (r.result === 'other') {
+        await store.addNote(order.id, `收到另一筆藍新付款成功通知（交易序號 ${tradeNo}），訂單已是「${WC_STATUS_ZH[r.prev_status || order.status] || r.prev_status || order.status}」，未重複處理，請人工確認是否需退款。`)
         await store.audit('newebpay_duplicate_payment', order.id, null, { trade_no: tradeNo, merchant_order_no: mon })
       }
       return { http: 200, outcome: 'duplicate' }
     }
-    await store.mergeMeta(order.id, { ...info, status: Status, message: Message })
-    await store.addNote(order.id, '付款完成')
-    await store.addNote(order.id, `訂單狀態由 ${WC_STATUS_ZH[order.status] || order.status} 變更為 處理中.`)
-    if (await store.claimStockReduction(order.id)) {
-      const lines = await store.reduceStock(order.id)
-      if (lines.length) await store.addNote(order.id, `庫存量已減少： ${lines.join(', ')}`)
-    }
-    await store.audit('newebpay_paid', order.id, { status: order.status }, { status: 'processing', trade_no: tradeNo, payment_type: info.payment_type, amt })
+    await store.audit(r.result === 'applied' ? 'newebpay_paid' : 'newebpay_paid_completed', order.id, { status: r.prev_status }, { status: 'processing', trade_no: tradeNo, payment_type: info.payment_type, amt, stock: r.stock_lines || [] })
     await log(order.id, 'paid')
     return { http: 200, outcome: 'paid' }
   }
 
   if (Status === 'SUCCESS' && kind === 'customer') {
     // ATM / 超商代碼 取號完成 (RY Tools: order on-hold with the payment instructions; WC reduces stock on on-hold)
-    const won = await store.casStatus(order.id, ['pending', 'failed'], 'on-hold', {})
-    if (!won) {
+    const detail = info.code_no ? `超商代碼：${info.code_no}` : `銀行代碼：${info.bank_code || '—'}，轉帳帳號：${info.account || '—'}`
+    const r = await store.apply(order.id, 'on-hold', tradeNo, info, [
+      `已取得付款資訊，${detail}，繳費期限：${[info.expire_date, info.expire_time].filter(Boolean).join(' ') || '—'}。訂單狀態由 {from} 變更為 保留.`,
+    ])
+    if (r.result !== 'applied') {
       await log(order.id, 'duplicate')
       return { http: 200, outcome: 'duplicate' }
     }
-    await store.mergeMeta(order.id, { ...info, status: Status, message: Message })
-    const detail = info.code_no ? `超商代碼：${info.code_no}` : `銀行代碼：${info.bank_code || '—'}，轉帳帳號：${info.account || '—'}`
-    await store.addNote(order.id, `已取得付款資訊，${detail}，繳費期限：${[info.expire_date, info.expire_time].filter(Boolean).join(' ') || '—'}。訂單狀態由 ${WC_STATUS_ZH[order.status] || order.status} 變更為 保留.`)
-    if (await store.claimStockReduction(order.id)) {
-      const lines = await store.reduceStock(order.id)
-      if (lines.length) await store.addNote(order.id, `庫存量已減少： ${lines.join(', ')}`)
-    }
-    await store.audit('newebpay_on_hold', order.id, { status: order.status }, { status: 'on-hold', ...info })
+    await store.audit('newebpay_on_hold', order.id, { status: r.prev_status }, { ...info, status: 'on-hold' })
     await log(order.id, 'on-hold')
     return { http: 200, outcome: 'on-hold' }
   }
 
   // failure: WooCommerce only fails a still-pending order
-  const won = await store.casStatus(order.id, ['pending'], 'failed', {})
-  if (!won) {
+  const r = await store.apply(order.id, 'failed', tradeNo, info, [`付款失敗： ${Message} (${Status}) 訂單狀態由 {from} 變更為 失敗.`])
+  if (r.result !== 'applied') {
     await log(order.id, 'ignored')
     return { http: 200, outcome: 'ignored' }
   }
-  await store.mergeMeta(order.id, { ...info, status: Status, message: Message })
-  await store.addNote(order.id, `付款失敗： ${Message} (${Status}) 訂單狀態由 ${WC_STATUS_ZH[order.status] || order.status} 變更為 失敗.`)
-  await store.audit('newebpay_failed', order.id, { status: order.status }, { status: 'failed', message: Message, code: Status })
+  await store.audit('newebpay_failed', order.id, { status: r.prev_status }, { status: 'failed', message: Message, code: Status })
   await log(order.id, 'failed')
   return { http: 200, outcome: 'failed' }
 }

@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 import { admin } from '@/lib/supabase'
 import { getCartRow, summarize } from '@/lib/cart'
 import { currentUser, customerFor } from '@/lib/auth'
-import { cancelUnpaidOrders, publicGateways, reservedStockError } from '@/lib/newebpay/service'
+import { cancelUnpaidOrders, checkoutGuard, publicGateways, reservedStockError } from '@/lib/newebpay/service'
+import { clientIp } from '@/lib/newebpay/core'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,6 +45,9 @@ export async function POST(req: Request) {
     gateway = gateways.find((g) => g.id === b.payment_method) || null
     if (!gateway) return NextResponse.json({ ok: false, error: '請選擇付款方式。' }, { status: 400 })
     await cancelUnpaidOrders().catch(() => 0) // free stock held by expired unpaid orders first
+    // anti-hoarding: unpaid NewebPay orders hold stock, so cap them per IP / e-mail and rate-limit checkout (DB-counted)
+    const blocked = await checkoutGuard(clientIp(req.headers), billing.email || null)
+    if (blocked) return NextResponse.json({ ok: false, error: blocked }, { status: 429 })
     const held = await reservedStockError(sum.items).catch(() => null)
     if (held) return NextResponse.json({ ok: false, error: held }, { status: 400 })
   }
@@ -77,7 +81,7 @@ export async function POST(req: Request) {
       discount_total: sum.discount,
       total: sum.total,
       coupon_codes: sum.coupons.map((c) => c.code),
-      customer_ip: (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null,
+      customer_ip: clientIp(req.headers),
       customer_user_agent: (req.headers.get('user-agent') || '').slice(0, 500),
       created_via: 'checkout',
       attribution,

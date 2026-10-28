@@ -24,7 +24,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const { data: items } = await db.from('order_items').select('name').eq('order_id', o.id).eq('item_type', 'line_item').order('id')
   const mon = generateMerchantOrderNo(o.id)
-  await issueMerchantOrderNo(o.id, mon, gw.title, gw.noteLabel)
+  try {
+    await issueMerchantOrderNo(o.id, mon, gw.title, gw.noteLabel)
+  } catch (e) {
+    console.error('newebpay pay failed:', (e as Error).message)
+    return NextResponse.json({ ok: false, error: '暫時無法前往付款，請稍後再試。' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+  }
   const base = baseUrl(req)
   const form = buildMpgForm(cfg, gw, { id: o.id, total: o.total, email: o.billing_email, itemNames: (items || []).map((i) => i.name) }, mon, {
     notifyUrl: `${base}/api/newebpay/notify`,
