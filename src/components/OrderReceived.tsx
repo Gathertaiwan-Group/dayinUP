@@ -16,7 +16,15 @@ export default function OrderReceived({ orderId, orderKey = '' }: { orderId: str
   return (
     <div className="woocommerce">
       <div className="woocommerce-order">
-        <p className="woocommerce-notice woocommerce-notice--success woocommerce-thankyou-order-received">謝謝您，我們已收到您的訂單。訂單目前為「待付款」，我們會再與您聯繫付款方式。</p>
+        {notice(order)}
+        {order.payment?.account || order.payment?.code_no ? (
+          <ul className="woocommerce-order-overview order_details">
+            {order.payment.bank_code && <li>銀行代碼： <strong>{order.payment.bank_code}</strong></li>}
+            {order.payment.account && <li>轉帳帳號： <strong>{order.payment.account}</strong></li>}
+            {order.payment.code_no && <li>超商繳費代碼： <strong>{order.payment.code_no}</strong></li>}
+            {order.payment.expire_date && <li>繳費期限： <strong>{[order.payment.expire_date, order.payment.expire_time].filter(Boolean).join(' ')}</strong></li>}
+          </ul>
+        ) : null}
         <ul className="woocommerce-order-overview woocommerce-thankyou-order-details order_details">
           <li className="woocommerce-order-overview__order order">訂單編號： <strong>{order.id}</strong></li>
           <li className="woocommerce-order-overview__date date">日期： <strong>{date}</strong></li>
@@ -49,4 +57,26 @@ export default function OrderReceived({ orderId, orderKey = '' }: { orderId: str
       </div>
     </div>
   )
+}
+
+function notice(order: any) {
+  const nw = String(order.payment_method || '').startsWith('ry_newebpay')
+  if (!nw) return <p className="woocommerce-notice woocommerce-notice--success woocommerce-thankyou-order-received">謝謝您，我們已收到您的訂單。訂單目前為「待付款」，我們會再與您聯繫付款方式。</p>
+  if (order.status === 'failed' || (order.pay_url && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('nwp') === 'fail'))
+    return (
+      <p className="woocommerce-notice woocommerce-notice--error woocommerce-thankyou-order-failed">
+        很遺憾，您的付款未成功{order.payment?.message ? `（${order.payment.message}）` : ''}，訂單尚未完成。
+        {order.pay_url && <> <a href={order.pay_url} className="button pay">重新付款</a></>}
+      </p>
+    )
+  if (order.status === 'pending')
+    return (
+      <p className="woocommerce-notice woocommerce-thankyou-order-received">
+        訂單已建立，正在等待藍新金流付款結果。若您已完成付款，請稍後重新整理本頁。
+        {order.pay_url && <> <a href={order.pay_url} className="button pay">前往付款</a></>}
+      </p>
+    )
+  if (order.status === 'on-hold') return <p className="woocommerce-notice woocommerce-notice--success woocommerce-thankyou-order-received">謝謝您，我們已收到您的訂單，請於期限內依下列資訊完成繳費。</p>
+  if (order.status === 'cancelled') return <p className="woocommerce-notice woocommerce-notice--error">此訂單已取消（付款期限已過）。</p>
+  return <p className="woocommerce-notice woocommerce-notice--success woocommerce-thankyou-order-received">謝謝您，我們已收到您的訂單。</p>
 }

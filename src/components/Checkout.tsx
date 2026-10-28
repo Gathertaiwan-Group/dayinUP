@@ -10,7 +10,10 @@ const COUNTRIES: [string, string][] = [
 ]
 const TW_STATES = ['臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市', '基隆市', '新竹市', '嘉義市', '新竹縣', '苗栗縣', '彰化縣', '南投縣', '雲林縣', '嘉義縣', '屏東縣', '宜蘭縣', '花蓮縣', '臺東縣', '澎湖縣', '金門縣', '連江縣']
 
-export default function Checkout({ fields }: { fields: Record<string, Field> }) {
+type Gateway = { id: string; title: string; description: string }
+
+export default function Checkout({ fields, gateways = [] }: { fields: Record<string, Field>; gateways?: Gateway[] }) {
+  const [method, setMethod] = useState<string>(gateways[0]?.id || '')
   const [cart, setCart] = useState<CartSummary | null>(null)
   const [vals, setVals] = useState<Record<string, string>>({ country: 'TW' })
   const [note, setNote] = useState('')
@@ -95,7 +98,7 @@ export default function Checkout({ fields }: { fields: Record<string, Field> }) 
     setBusy(true)
     setErr([])
     const w = window as any
-    const r = await call('/api/checkout/', 'POST', { billing: vals, customer_note: hasNote ? note : '', attribution: w.dayinup?.attribution?.() || {} })
+    const r = await call('/api/checkout/', 'POST', { billing: vals, payment_method: method, customer_note: hasNote ? note : '', attribution: w.dayinup?.attribution?.() || {} })
     setBusy(false)
     if (r.ok && r.redirect) {
       w.dayinup?.updateCartBadge?.({ count: 0, total: 0 })
@@ -141,17 +144,35 @@ export default function Checkout({ fields }: { fields: Record<string, Field> }) 
               <legend className="screen-reader-text">付款選項</legend>
               <div className="wc-block-components-checkout-step__heading"><h2 className="wc-block-components-title wc-block-components-checkout-step__title">付款選項</h2></div>
               <div className="wc-block-components-checkout-step__container">
-                <div className="wc-block-components-radio-control-accordion-option wc-block-components-radio-control-accordion-option--checked-option-highlighted">
-                  <label className="wc-block-components-radio-control__option wc-block-components-radio-control__option-checked">
-                    <input type="radio" className="wc-block-components-radio-control__input" checked readOnly name="radio-control-wc-payment-method-options" value="pending" />
-                    <div className="wc-block-components-radio-control__option-layout">
-                      <span className="wc-block-components-radio-control__label">送出訂單後付款（待付款）</span>
+                {gateways.length ? (
+                  gateways.map((g) => (
+                    <div className={`wc-block-components-radio-control-accordion-option${method === g.id ? ' wc-block-components-radio-control-accordion-option--checked-option-highlighted' : ''}`} key={g.id}>
+                      <label className={`wc-block-components-radio-control__option${method === g.id ? ' wc-block-components-radio-control__option-checked' : ''}`}>
+                        <input type="radio" className="wc-block-components-radio-control__input" checked={method === g.id} onChange={() => setMethod(g.id)} name="radio-control-wc-payment-method-options" value={g.id} />
+                        <div className="wc-block-components-radio-control__option-layout">
+                          <span className="wc-block-components-radio-control__label">{g.title}</span>
+                        </div>
+                      </label>
+                      {method === g.id && g.description && (
+                        <div className="wc-block-components-radio-control-accordion-content">
+                          <p>{g.description}</p>
+                        </div>
+                      )}
                     </div>
-                  </label>
-                  <div className="wc-block-components-radio-control-accordion-content">
-                    <p>訂單送出後狀態為「待付款」，我們會再以電子郵件提供付款方式。目前網站未串接線上刷卡。</p>
+                  ))
+                ) : (
+                  <div className="wc-block-components-radio-control-accordion-option wc-block-components-radio-control-accordion-option--checked-option-highlighted">
+                    <label className="wc-block-components-radio-control__option wc-block-components-radio-control__option-checked">
+                      <input type="radio" className="wc-block-components-radio-control__input" checked readOnly name="radio-control-wc-payment-method-options" value="pending" />
+                      <div className="wc-block-components-radio-control__option-layout">
+                        <span className="wc-block-components-radio-control__label">送出訂單後付款（待付款）</span>
+                      </div>
+                    </label>
+                    <div className="wc-block-components-radio-control-accordion-content">
+                      <p>訂單送出後狀態為「待付款」，我們會再以電子郵件提供付款方式。目前網站未串接線上刷卡。</p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </fieldset>
             <div className="wc-block-checkout__add-note">

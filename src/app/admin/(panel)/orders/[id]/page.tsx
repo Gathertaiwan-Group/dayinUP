@@ -117,6 +117,7 @@ export default async function OrderView({ params, searchParams }: { params: Prom
           </form>
         </div>
         <aside>
+          <PaymentCard o={o} />
           <form action={orderStatusAction.bind(null, id)} className="adm-card">
             <h2 className="adm-h2">訂單狀態</h2>
             <div className="adm-field">
@@ -131,7 +132,11 @@ export default async function OrderView({ params, searchParams }: { params: Prom
               <textarea id="note" name="note" className="plain" rows={2} />
             </div>
             <button className="adm-btn pri" type="submit">更新狀態</button>
-            <p className="adm-muted">本站未串接金流（舊站為藍新 NewebPay）：訂單由前台建立為「待付款」，收款後請手動改為「處理中」。</p>
+            <p className="adm-muted">
+              {String(o.payment_method || "").startsWith("ry_newebpay")
+                ? "藍新金流訂單：付款結果由藍新 NotifyURL 自動更新（付款成功 → 處理中並扣庫存；未付款 60 分鐘自動取消）。"
+                : "此訂單未經線上金流：收款後請手動改為「處理中」。"}
+            </p>
           </form>
           <div className="adm-card">
             <h2 className="adm-h2">訂單備註</h2>
@@ -163,3 +168,41 @@ export default async function OrderView({ params, searchParams }: { params: Prom
   );
 }
 
+
+/** 付款資訊（藍新）：交易序號、付款方式、卡號末碼、ATM 帳號／超商代碼與期限 */
+function PaymentCard({ o }: { o: any }) {
+  const m = o.meta || {};
+  const n = m.newebpay || {};
+  const rows: [string, string | undefined][] = [
+    ["付款方式", [o.payment_method_title, n.payment_type || m._newebpay_payment_type].filter(Boolean).join("・") || undefined],
+    ["交易序號", o.transaction_id || n.trade_no],
+    ["藍新訂單編號", n.merchant_order_no || n.last_merchant_order_no || m._newebpay_MerchantOrderNo],
+    ["付款時間", n.pay_time],
+    ["收單銀行", n.auth_bank],
+    ["卡號", n.card6 || n.card4 ? `${n.card6 || "******"}******${n.card4 || "****"}` : undefined],
+    ["授權碼", n.auth_code],
+    ["ATM 銀行代碼", n.bank_code],
+    ["ATM 轉帳帳號", n.account],
+    ["超商代碼", n.code_no],
+    ["繳費期限", [n.expire_date, n.expire_time].filter(Boolean).join(" ") || undefined],
+    ["付款人帳號末五碼", n.payer_account5],
+    ["回應訊息", n.message ? `${n.message}（${n.status || ""}）` : undefined],
+  ];
+  const shown = rows.filter(([, v]) => v);
+  if (!shown.length) return null;
+  return (
+    <div className="adm-card">
+      <h2 className="adm-h2">付款資訊</h2>
+      <table className="adm-table">
+        <tbody>
+          {shown.map(([k, v]) => (
+            <tr key={k}>
+              <th style={{ textAlign: "left", whiteSpace: "nowrap" }}>{k}</th>
+              <td>{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

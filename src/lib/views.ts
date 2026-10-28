@@ -9,6 +9,7 @@ import {
 } from './data'
 import { db, admin, SITE_URL } from './supabase'
 import { srcsetOf } from './images'
+import { publicGateways } from './newebpay/service'
 import {
   esc, decodeEntities, stripTags, priceHtml, money, fmt, img, productCard, postCard, postClasses, productClasses,
   pagination, breadcrumbs, badge, addToCartLoop, SNIPPETS, excerptHtml,
@@ -632,7 +633,7 @@ export const resolveView = cache(async (segments: string[], sp: Record<string, s
     if (segs.length === 1) {
       return {
         kind: 'checkout', status: 200, css: [], ...shellPage(path, 8, 'wp-singular page-template-default page page-id-8 woocommerce-checkout woocommerce-page', '<div id="dayinup-client"></div>'),
-        seo: seoFrom(pg || { seo: { title: 'Checkout - DayinUP' } }, 'Checkout', path), client: { component: 'checkout', props: { fields: settings['woocommerce.checkout_fields'] || {} } },
+        seo: seoFrom(pg || { seo: { title: 'Checkout - DayinUP' } }, 'Checkout', path), client: { component: 'checkout', props: { fields: settings['woocommerce.checkout_fields'] || {}, gateways: publicGateways() } },
       }
     }
   }

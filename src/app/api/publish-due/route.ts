@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { publishDue } from '@/lib/schedule'
+import { cancelUnpaidOrders } from '@/lib/newebpay/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,5 +11,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET() {
   const promoted = await publishDue() // calls refreshSite() itself when rows were promoted
-  return NextResponse.json({ promoted }, { headers: { 'Cache-Control': 'no-store' } })
+  // WooCommerce hold-stock cron: cancel NewebPay orders left unpaid for 60 minutes (no-op without NEWEBPAY_*)
+  const cancelled = await cancelUnpaidOrders().catch(() => 0)
+  return NextResponse.json({ promoted, cancelled }, { headers: { 'Cache-Control': 'no-store' } })
 }

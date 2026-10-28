@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { admin } from '@/lib/supabase'
 import { getCartRow, summarize } from '@/lib/cart'
 import { currentUser, customerFor } from '@/lib/auth'
+import { cancelUnpaidOrders, publicGateways, reservedStockError } from '@/lib/newebpay/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,7 +11,8 @@ const FIELD_ORDER = ['email', 'country', 'first_name', 'last_name', 'company', '
 
 /**
  * Creates a WooCommerce-equivalent order in status "pending" (待付款).
- * No payment gateway is called — the old site's NewebPay (ry_newebpay_credit) is intentionally NOT integrated.
+ * When NEWEBPAY_* is configured the customer picks a NewebPay method (old site: 藍新信用卡) and is sent to
+ * /api/newebpay/pay/<id> (signed MPG form built from the stored order total); otherwise the order simply stays 待付款.
  */
 export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}))
@@ -36,6 +38,16 @@ export async function POST(req: Request) {
   if (!billing.country) billing.country = 'TW'
   if (errors.length) return NextResponse.json({ ok: false, error: errors.join('\n'), errors }, { status: 400 })
 
+  const gateways = publicGateways()
+  let gateway: (typeof gateways)[number] | null = null
+  if (gateways.length && sum.total > 0) {
+    gateway = gateways.find((g) => g.id === b.payment_method) || null
+    if (!gateway) return NextResponse.json({ ok: false, error: '請選擇付款方式。' }, { status: 400 })
+    await cancelUnpaidOrders().catch(() => 0) // free stock held by expired unpaid orders first
+    const held = await reservedStockError(sum.items).catch(() => null)
+    if (held) return NextResponse.json({ ok: false, error: held }, { status: 400 })
+  }
+
   const user = await currentUser()
   let customerId: number | null = null
   if (user) {
@@ -58,8 +70,8 @@ export async function POST(req: Request) {
       billing_email: billing.email || user?.email || null,
       billing,
       shipping: {},
-      payment_method: 'pending',
-      payment_method_title: '待付款（尚未串接線上金流）',
+      payment_method: gateway ? gateway.id : 'pending',
+      payment_method_title: gateway ? gateway.title : '待付款（尚未串接線上金流）',
       customer_note: String(b.customer_note || '').slice(0, 2000) || null,
       subtotal: sum.subtotal,
       discount_total: sum.discount,
@@ -70,7 +82,7 @@ export async function POST(req: Request) {
       created_via: 'checkout',
       attribution,
       date_modified: new Date().toISOString(),
-      meta: { source: 'dayinup-next', legacy_gateway: 'ry_newebpay_credit (not connected)' },
+      meta: gateway ? { source: 'dayinup-next', gateway: 'newebpay' } : { source: 'dayinup-next', legacy_gateway: 'ry_newebpay_credit (not connected)' },
     })
     .select('id,order_key')
     .single()
@@ -95,7 +107,7 @@ export async function POST(req: Request) {
     await db.from('orders').update({ status: 'failed' }).eq('id', orderId)
     return NextResponse.json({ ok: false, error: '建立訂單項目失敗，請稍後再試。' }, { status: 500 })
   }
-  await db.from('order_notes').insert({ order_id: orderId, note: '訂單已建立，狀態：待付款（新站未串接金流）。', added_by: 'system' })
+  await db.from('order_notes').insert({ order_id: orderId, note: gateway ? `訂單已建立，狀態：等待付款中（${gateway.title}）。` : '訂單已建立，狀態：待付款（新站未串接金流）。', added_by: 'system' })
   for (const c of sum.coupons) {
     const cur = await db.from('coupons').select('id,usage_count,used_by').ilike('code', c.code).limit(1)
     const row = cur.data?.[0]
@@ -104,7 +116,8 @@ export async function POST(req: Request) {
   if (customerId) await refreshCustomerTotals(db, customerId).catch(() => null)
   await db.from('cart_items').delete().eq('cart_id', cart.id)
   await db.from('carts').update({ coupon_codes: [], customer_id: customerId }).eq('id', cart.id)
-  return NextResponse.json({ ok: true, order_id: orderId, order_key: ins.data.order_key, redirect: `/checkout/order-received/${orderId}/?key=${ins.data.order_key}` })
+  const redirect = gateway ? `/api/newebpay/pay/${orderId}?key=${ins.data.order_key}` : `/checkout/order-received/${orderId}/?key=${ins.data.order_key}`
+  return NextResponse.json({ ok: true, order_id: orderId, order_key: ins.data.order_key, redirect })
 }
 
 async function guestCustomer(db: ReturnType<typeof admin>, billing: Record<string, string>): Promise<number | null> {
